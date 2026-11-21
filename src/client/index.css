@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-semibold.ttf") format("truetype");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 轻记浅色体系：参考 Lumen Studio 的低饱和中性画布 + 纯白浮卡 + 克制暖橙点色 */
+:root {
+  --radius: 0.75rem;
+  --background: #f6f6f7;
+  --foreground: #232426;
+  --card: #ffffff;
+  --card-foreground: #232426;
+  --popover: #ffffff;
+  --popover-foreground: #232426;
+  --primary: #26272a;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f2f4;
+  --secondary-foreground: #232426;
+  --muted: #f0f0f2;
+  --muted-foreground: #71727a;
+  --accent: #efeff1;
+  --accent-foreground: #232426;
+  --destructive: #c84b31;
+  --border: #eaeaeE;
+  --input: #e2e2e7;
+  --ring: #b4b5bd;
+  --chart-1: #e87a4d;
+  --chart-2: #7d98a6;
+  --chart-3: #839278;
+  --chart-4: #ad9b7b;
+  --chart-5: #9689ad;
+  --sidebar: #fdfdfd;
+  --sidebar-foreground: #232426;
+  --sidebar-primary: #26272a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efeff0;
+  --sidebar-accent-foreground: #232426;
+  --sidebar-border: #e9e9ec;
+  --sidebar-ring: #b4b5bd;
+
+  --brand: #e56332;
+  --brand-muted: #e6845a;
+  --brand-soft: #fff2ea;
+  --success: #4d8061;
+}
+
+@theme inline {
+  --font-sans: "Inter", "PingFang SC", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-brand-muted: var(--brand-muted);
+  --color-brand-soft: var(--brand-soft);
+  --color-success: var(--success);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground antialiased; }
+  /* 卡片内部分割线比外框再轻一档，对齐 Lumen 的丝滑呼吸感 */
+  [data-slot="card"] > * { --border: #f1f1f4; }
+}
+
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图标：lucide 线宽从默认 2 调细，整体更淡雅 */
+@layer base {
+  svg.lucide { stroke-width: 1.5; }
+}

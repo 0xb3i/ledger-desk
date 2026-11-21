@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 轻记应用图标：冷白圆角底板（取主题背景色系） + 与 favicon 相同的实心标记（石墨页面镂出两行，右下橙色句点） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f1f1f3"/></linearGradient>
+    <mask id="m"><rect width="32" height="32" fill="#fff"/><rect x="8" y="9" width="11" height="3" rx="1.5" fill="#000"/><rect x="8" y="15" width="7" height="3" rx="1.5" fill="#000"/><circle cx="24" cy="25" r="7" fill="#000"/></mask>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="185.5" fill="none" stroke="#000" stroke-opacity=".07"/>
+  <g transform="translate(197 215) scale(18)">
+    <rect x="4" y="3" width="19" height="25" rx="4.5" fill="#262626" mask="url(#m)"/>
+    <circle cx="24" cy="25" r="5" fill="#e56332"/>
+  </g>
+</svg>
