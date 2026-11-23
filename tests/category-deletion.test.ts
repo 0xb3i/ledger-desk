@@ -195,6 +195,9 @@ describe('删除与迁移类目', () => {
     const payload = { snapshot: preview.snapshot, replacementCategoryId: target.id };
     expect((await request(`/categories/${source.id}`, 'DELETE', payload, cookie, 'https://wrong.test')).status).toBe(403);
     expect((await request(`/categories/${source.id}`, 'DELETE', payload, cookie)).status).toBe(200);
+    const learning = await previewCategoryDeletion(db, 'learning', target.id);
+    await deleteCategory(db, 'learning', learning.snapshot, target.id);
+    const recreated = await category('学习');
     const backup = (await (await request('/backup', 'GET', undefined, cookie)).json() as { data: CurrentBackup }).data;
     expect(backup.categories.some(item => item.id === source.id)).toBe(false);
     const restored = new LocalDatabase(':memory:');
@@ -202,7 +205,16 @@ describe('删除与迁移类目', () => {
       await applyMigrations(restored, resolve('migrations'));
       const freshLogin = await request('/session', 'POST', { accessKey: env.OWNER_ACCESS_KEY }, undefined, origin, restored);
       const freshCookie = freshLogin.headers.get('Set-Cookie')!.split(';')[0];
+      const localCategory = await createCategory(restored, { name: '本地类目', kind: 'expense', icon: 'other', color: 'sage' });
+      expect((await request('/backup/restore', 'POST', backup, freshCookie, origin, restored)).status).toBe(409);
+      expect((await listCategories(restored)).find(item => item.name === '学习')?.id).toBe('learning');
+      expect((await listCategories(restored)).some(item => item.id === localCategory.id)).toBe(true);
+      const removable = await previewCategoryDeletion(restored, localCategory.id);
+      await deleteCategory(restored, localCategory.id, removable.snapshot);
       expect((await request('/backup/restore', 'POST', backup, freshCookie, origin, restored)).status).toBe(200);
+      const restoredCategories = await listCategories(restored);
+      expect(restoredCategories.find(item => item.name === '学习')?.id).toBe(recreated.id);
+      expect(restoredCategories.some(item => item.id === 'learning')).toBe(false);
       expect(await getTransaction(restored, row.transaction.id)).toMatchObject({ category_id: target.id, category_source: 'manual' });
       expect((await listCategoryRules(restored)).some(rule => rule.keyword === '备份店铺' && rule.categoryId === target.id)).toBe(true);
       expect((await createTransaction(restored, savedInput, options))).toMatchObject({ duplicate: true, transaction: { id: row.transaction.id, categoryId: target.id } });

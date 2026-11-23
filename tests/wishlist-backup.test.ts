@@ -66,7 +66,7 @@ describe('心愿单全应用备份', () => {
 
     const result = await request('/backup/restore', 'POST', backup);
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ data: { inserted: 1, skipped: 0, wishlistInserted: 3, wishlistSkipped: 0, budgetRestored: false } });
+    expect(await result.json()).toEqual({ data: { inserted: 1, skipped: 0, wishlistInserted: 3, wishlistSkipped: 0, subscriptionsInserted: 0, subscriptionsSkipped: 0, budgetRestored: false } });
     const restored = await exportBackup();
     expect(restored.wishlistItems).toEqual(backup.wishlistItems);
     expect(restored.transactions).toEqual(backup.transactions);
@@ -74,7 +74,7 @@ describe('心愿单全应用备份', () => {
     expect(await db.prepare('SELECT create_payload_hash FROM wishlist_items WHERE id=?').bind(purchased.id).first('create_payload_hash')).toBeNull();
     const repeated = await request('/backup/restore', 'POST', backup);
     expect(repeated.status).toBe(200);
-    expect(await repeated.json()).toEqual({ data: { inserted: 0, skipped: 1, wishlistInserted: 0, wishlistSkipped: 3, budgetRestored: false } });
+    expect(await repeated.json()).toEqual({ data: { inserted: 0, skipped: 1, wishlistInserted: 0, wishlistSkipped: 3, subscriptionsInserted: 0, subscriptionsSkipped: 0, budgetRestored: false } });
   });
 
   it.each([1, 2, 3, 4, 5])('旧 v%s 备份仍可恢复，保留已有心愿和创建请求哈希', async schemaVersion => {
@@ -86,7 +86,7 @@ describe('心愿单全应用备份', () => {
       ? old.categories.map(({ id, name, kind }) => ({ id, name, kind })) : old.categories };
     const result = await request('/backup/restore', 'POST', legacy);
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ data: { inserted: 0, skipped: 0, wishlistInserted: 0, wishlistSkipped: 0, budgetRestored: false } });
+    expect(await result.json()).toEqual({ data: { inserted: 0, skipped: 0, wishlistInserted: 0, wishlistSkipped: 0, subscriptionsInserted: 0, subscriptionsSkipped: 0, budgetRestored: false } });
     expect(await db.prepare('SELECT * FROM wishlist_items WHERE id=?').bind(item.id).first()).toEqual(before);
   });
 

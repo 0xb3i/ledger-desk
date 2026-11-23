@@ -102,7 +102,7 @@ export async function createTransaction(db: D1Database, input: NormalizedInput, 
     .bind(options.scope, options.key).first<TransactionRow>();
   if (!row) throw new ApiError(500, 'WRITE_FAILED', '账目保存未完成，请使用同一个请求标识重试');
   if (row.payload_hash !== payloadHash) throw new ApiError(409, 'IDEMPOTENCY_CONFLICT', '同一个请求标识已用于不同账目，请核对后重新提交');
-  await syncFixedExpenses(db, row.is_fixed === 1 ? row.id : undefined);
+  await syncFixedExpenses(db);
   const finalRow = await db.prepare('SELECT * FROM transactions WHERE id = ?').bind(row.id).first<TransactionRow>() ?? row;
   return { transaction: toTransaction(finalRow), duplicate: row.id !== id };
 }
@@ -116,9 +116,10 @@ export async function updateTransaction(db: D1Database, id: string, input: Norma
   // Changing transaction kind is a manual decision outside the original rule's scope.
   const categoryChanged = input.categoryOverride || input.categoryId !== previous.category_id || input.kind !== previous.kind || transferDirection !== previous.transfer_direction;
   const fixed = input.isFixed === undefined ? null : Number(input.isFixed);
+  const now = new Date().toISOString();
   let row: TransactionRow | null;
   try {
-    row = await db.prepare(`UPDATE transactions SET occurred_at = ?, kind = ?, amount_cents = ?,
+    const edit = db.prepare(`UPDATE transactions SET occurred_at = ?, kind = ?, amount_cents = ?,
     description = ?, counterparty = ?, category_id = ?, account_id = ?, note = ?,
     review_status = COALESCE(?, review_status), updated_at = ?, version = version + 1,
     is_fixed = CASE WHEN ? != 'expense' THEN 0 ELSE COALESCE(?, is_fixed) END,
@@ -126,14 +127,35 @@ export async function updateTransaction(db: D1Database, id: string, input: Norma
     category_source = ?, category_rule_id = ?, category_rule_keyword = ?, transfer_direction = ?
     WHERE id = ? AND version = ? AND deleted_at IS NULL RETURNING *`)
     .bind(input.occurredAt, input.kind, input.amountCents, input.description, input.counterparty,
-      input.categoryId, input.accountId, input.note, status || null, new Date().toISOString(),
+      input.categoryId, input.accountId, input.note, status || null, now,
       input.kind, fixed, fixed, fixed, input.kind,
       categoryChanged ? 'manual' : previous.category_source, categoryChanged ? null : previous.category_rule_id,
-      categoryChanged ? null : previous.category_rule_keyword, transferDirection, id, version).first<TransactionRow>();
+      categoryChanged ? null : previous.category_rule_keyword, transferDirection, id, version);
+    const updatePeers = previous.is_fixed && fixed !== 0 && input.kind === 'expense' &&
+      previous.review_status === 'confirmed' && status !== 'pending' && previous.account_id === input.accountId &&
+      previous.amount_cents === input.amountCents && (previous.description !== input.description || previous.category_id !== input.categoryId);
+    if (updatePeers) {
+      // Only propagate an explicit edit to confirmed fixed entries with the same
+      // original merchant details and category. A shared collection platform alone is ambiguous.
+      const peers = db.prepare(`UPDATE transactions SET description=?1,category_id=?2,
+          category_source=CASE WHEN category_id IS ?2 THEN category_source ELSE 'manual' END,
+          category_rule_id=CASE WHEN category_id IS ?2 THEN category_rule_id ELSE NULL END,
+          category_rule_keyword=CASE WHEN category_id IS ?2 THEN category_rule_keyword ELSE NULL END,
+          updated_at=?3,version=version+1
+        WHERE id!=?4 AND deleted_at IS NULL AND review_status='confirmed' AND kind='expense' AND is_fixed=1
+          AND account_id=?5 AND amount_cents=?6 AND description=?7 AND counterparty=?8 AND category_id IS ?9
+          AND EXISTS(SELECT 1 FROM transactions WHERE id=?4 AND version=?10 AND deleted_at IS NULL)`)
+        .bind(input.description, input.categoryId, now, id, previous.account_id, previous.amount_cents,
+          previous.description, previous.counterparty, previous.category_id, version);
+      const results = await db.batch<TransactionRow>([peers, edit]);
+      row = results[1].results[0] ?? null;
+    } else {
+      row = await edit.first<TransactionRow>();
+    }
   } catch (error) { rethrowCategoryReferenceError(error); }
   if (!row) await explainWriteConflict(db, id);
   if (row!.review_status === 'confirmed') {
-    await syncFixedExpenses(db, row!.is_fixed ? row!.id : undefined);
+    await syncFixedExpenses(db);
     return toTransaction(await getTransaction(db, id));
   }
   return toTransaction(row!);
@@ -148,7 +170,7 @@ export async function changeStatus(db: D1Database, id: string, version: number, 
     .bind(...values).first<TransactionRow>();
   if (!row) await explainWriteConflict(db, id);
   if (operation !== 'archive' && row!.review_status === 'confirmed') {
-    await syncFixedExpenses(db, row!.is_fixed ? row!.id : undefined);
+    await syncFixedExpenses(db);
     return toTransaction(await getTransaction(db, id));
   }
   return toTransaction(row!);
@@ -201,19 +223,18 @@ function matchesFixedAliases(
  * 自动将同账户下金额完全相同（amount_cents 相等）且名称/曾用名匹配的跨月支出（或微信转账转出）
  * 标记为固定支出，并同步名称与分类。
  */
-export async function syncFixedExpenses(db: D1Database, preferredId?: string): Promise<number> {
+export async function syncFixedExpenses(db: D1Database): Promise<number> {
   const fixedRes = await db.prepare(`
-    SELECT t.id, t.account_id, t.amount_cents, t.description, t.counterparty, t.category_id, t.updated_at,
+    SELECT t.account_id, t.amount_cents, t.description, t.counterparty, t.category_id,
            (SELECT group_concat(json_extract(a.snapshot, '$.description'), char(31))
             FROM transaction_audit a WHERE a.transaction_id = t.id) AS audit_descriptions,
            (SELECT group_concat(json_extract(a.snapshot, '$.counterparty'), char(31))
             FROM transaction_audit a WHERE a.transaction_id = t.id) AS audit_counterparties
     FROM transactions t
     WHERE t.is_fixed = 1 AND t.kind = 'expense' AND t.deleted_at IS NULL AND t.review_status = 'confirmed'
-    ORDER BY CASE WHEN t.id = ? THEN 0 ELSE 1 END, t.updated_at DESC, t.occurred_at DESC
-  `).bind(preferredId ?? '').all<{
-    id: string; account_id: string; amount_cents: number; description: string; counterparty: string;
-    category_id: string | null; updated_at: string; audit_descriptions: string | null; audit_counterparties: string | null;
+  `).all<{
+    account_id: string; amount_cents: number; description: string; counterparty: string;
+    category_id: string | null; audit_descriptions: string | null; audit_counterparties: string | null;
   }>();
 
   const fixedRows = fixedRes.results ?? [];
@@ -225,14 +246,13 @@ export async function syncFixedExpenses(db: D1Database, preferredId?: string): P
     stems: { stem: string; truncated: boolean }[];
   }
 
-  const groups = new Map<string, FixedGroup>();
+  const groups = new Map<string, FixedGroup[]>();
   for (const row of fixedRows) {
     const key = `${row.account_id}:${row.amount_cents}`;
-    let group = groups.get(key);
-    if (!group) {
-      group = { template: row, aliases: new Set(), stems: [] };
-      groups.set(key, group);
-    }
+    const bucket = groups.get(key) ?? [];
+    const group: FixedGroup = { template: row, aliases: new Set(), stems: [] };
+    bucket.push(group);
+    groups.set(key, bucket);
     const rawNames = [
       row.description,
       row.counterparty,
@@ -252,54 +272,42 @@ export async function syncFixedExpenses(db: D1Database, preferredId?: string): P
   }
 
   const candidatesRes = await db.prepare(`
-    SELECT t.id, t.account_id, t.kind, t.transfer_direction, t.amount_cents, t.description, t.counterparty,
-           t.category_id, t.category_source, t.is_fixed, t.version,
+    SELECT t.id, t.account_id, t.amount_cents, t.description, t.counterparty,
+           t.category_id, t.category_source, t.version,
            (SELECT group_concat(json_extract(a.snapshot, '$.description'), char(31))
             FROM transaction_audit a WHERE a.transaction_id = t.id) AS audit_descriptions
     FROM transactions t
     WHERE t.deleted_at IS NULL AND t.review_status = 'confirmed'
       AND (t.kind = 'expense' OR (t.kind = 'transfer' AND t.transfer_direction = 'outflow'))
-      AND t.fixed_auto_excluded = 0
+      AND t.fixed_auto_excluded = 0 AND t.is_fixed = 0
       AND (t.account_id, t.amount_cents) IN (
         SELECT account_id, amount_cents FROM transactions
         WHERE is_fixed = 1 AND kind = 'expense' AND deleted_at IS NULL AND review_status = 'confirmed'
       )
   `).all<{
-    id: string; account_id: string; kind: Transaction['kind']; transfer_direction: TransferDirection | null;
+    id: string; account_id: string;
     amount_cents: number; description: string; counterparty: string; category_id: string | null;
-    category_source: Transaction['categorySource']; is_fixed: number; version: number; audit_descriptions: string | null;
+    category_source: Transaction['categorySource']; version: number; audit_descriptions: string | null;
   }>();
 
   let updatedCount = 0;
   const now = new Date().toISOString();
   for (const cand of candidatesRes.results ?? []) {
-    const group = groups.get(`${cand.account_id}:${cand.amount_cents}`);
-    if (!group || cand.id === group.template.id) continue;
+    const templates = groups.get(`${cand.account_id}:${cand.amount_cents}`) ?? [];
     const candidateNames = [
       cand.description,
       cand.counterparty,
       ...(cand.audit_descriptions ? cand.audit_descriptions.split('\u001f') : []),
     ].filter(Boolean);
-    if (!matchesFixedAliases(candidateNames, group.aliases, group.stems)) continue;
-
-    const tpl = group.template;
+    const matches = templates.filter(group => matchesFixedAliases(candidateNames, group.aliases, group.stems));
+    const tpl = matches[0]?.template;
+    if (!tpl || matches.some(({ template }) => template.description !== tpl.description || template.category_id !== tpl.category_id)) continue;
     const nextDescription = tpl.description;
     const nextCounterparty = cand.counterparty || (cand.description !== tpl.description ? cand.description : '');
-    const nextCategoryId = (cand.category_source === 'manual' && cand.category_id) ? cand.category_id : (tpl.category_id ?? cand.category_id);
+    const nextCategoryId = cand.category_source === 'manual' ? cand.category_id : (tpl.category_id ?? cand.category_id);
     const nextCategorySource: Transaction['categorySource'] = nextCategoryId !== cand.category_id
       ? 'manual'
       : (cand.category_source === 'unclassified' && nextCategoryId ? 'manual' : cand.category_source);
-
-    if (
-      cand.kind === 'expense' &&
-      cand.transfer_direction === null &&
-      cand.is_fixed === 1 &&
-      cand.description === nextDescription &&
-      cand.counterparty === nextCounterparty &&
-      cand.category_id === nextCategoryId
-    ) {
-      continue;
-    }
 
     const updated = await db.prepare(`
       UPDATE transactions

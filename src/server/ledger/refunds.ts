@@ -33,24 +33,27 @@ function sameMerchant(left: Merchant[], right: Merchant[]): boolean {
 }
 const eligible = (row: RefundMatchRow) => row.deleted_at === null && row.review_status === 'confirmed';
 
-function findUniqueSubsetSum(items: readonly RefundMatchRow[], target: number): RefundMatchRow[] | null {
-  if (target <= 0 || !items.length || items.length > 15) return null;
-  let found: RefundMatchRow[] | null = null;
+// Track every refund that can participate in a full match, including alternatives
+// for expenses with several valid subsets. Another expense cannot claim those refunds.
+function splitRefundOptions(items: readonly RefundMatchRow[], target: number) {
+  const possible = new Set<string>();
+  let count = 0;
+  if (items.length > 15) return { possible: new Set(items.map(item => item.id)), unique: false };
   const current: RefundMatchRow[] = [];
-  function dfs(index: number, sum: number): boolean {
+  function visit(index: number, sum: number): void {
     if (sum === target) {
-      if (found !== null) return true; // more than 1 subset -> ambiguous
-      found = [...current];
-      return false;
+      count++;
+      for (const item of current) possible.add(item.id);
+      return;
     }
-    if (index >= items.length || sum > target) return false;
+    if (index === items.length || sum > target) return;
     current.push(items[index]);
-    if (dfs(index + 1, sum + items[index].amount_cents)) return true;
+    visit(index + 1, sum + items[index].amount_cents);
     current.pop();
-    return dfs(index + 1, sum);
+    visit(index + 1, sum);
   }
-  const ambiguous = dfs(0, 0);
-  return ambiguous ? null : found;
+  if (target > 0) visit(0, 0);
+  return { possible, unique: count === 1 };
 }
 
 /** A read-only projection: ambiguous or excessive refunds never erase an expense. */
@@ -86,46 +89,28 @@ export function matchRefunds(rows: readonly RefundMatchRow[]): Map<string, Refun
     }
   }
 
-  // Pass 2: For same-merchant multi-order split refunds (e.g. Taobao sub-order refunds),
-  // match a unique subset of remaining refunds whose sum equals a candidate expense's remaining balance.
-  if (unassigned.length > 0) {
-    const claimed = new Set<string>();
-    const candidateMap = new Map<string, ExpenseCandidate>();
-    for (const u of unassigned) {
-      for (const c of u.candidates) candidateMap.set(c.row.id, c);
+  const pools = new Map<string, { expense: RefundMatchRow; refunds: RefundMatchRow[] }>();
+  for (const { refund, candidates } of unassigned) {
+    for (const { row: expense } of candidates) {
+      const pool = pools.get(expense.id) ?? { expense, refunds: [] };
+      pool.refunds.push(refund);
+      pools.set(expense.id, pool);
     }
-    const allCandidates = [...candidateMap.values()].sort((a, b) => a.time - b.time);
-    const remainingOf = (expenseRow: RefundMatchRow) => {
-      const group = proposed.get(expenseRow.id);
-      const used = group ? group.refunds.reduce((s, r) => s + r.amount_cents, 0) : 0;
-      return expenseRow.amount_cents - used;
-    };
-
-    let progress = true;
-    while (progress) {
-      progress = false;
-      for (const cand of allCandidates) {
-        const rem = remainingOf(cand.row);
-        if (rem <= 0) continue;
-        // Skip if another candidate expense has the exact same remaining balance
-        if (allCandidates.some(other => other.row.id !== cand.row.id && remainingOf(other.row) === rem && sameMerchant(other.merchants, cand.merchants))) {
-          continue;
-        }
-        const pool = unassigned
-          .filter(u => !claimed.has(u.refund.id) && u.refund.amount_cents <= rem && u.candidates.some(c => c.row.id === cand.row.id))
-          .map(u => u.refund);
-        const subset = findUniqueSubsetSum(pool, rem);
-        if (subset && subset.length > 0) {
-          const group = proposed.get(cand.row.id) ?? { expense: cand.row, refunds: [] };
-          for (const r of subset) {
-            group.refunds.push(r);
-            claimed.add(r.id);
-          }
-          proposed.set(cand.row.id, group);
-          progress = true;
-        }
-      }
-    }
+  }
+  const contenders = new Map<string, number>();
+  const splits: { expense: RefundMatchRow; refunds: RefundMatchRow[] }[] = [];
+  for (const { expense, refunds } of pools.values()) {
+    const assigned = proposed.get(expense.id)?.refunds ?? [];
+    const remaining = expense.amount_cents - assigned.reduce((sum, r) => sum + r.amount_cents, 0);
+    const { possible, unique } = splitRefundOptions(refunds.filter(r => r.amount_cents <= remaining), remaining);
+    for (const id of possible) contenders.set(id, (contenders.get(id) ?? 0) + 1);
+    if (unique) splits.push({ expense, refunds: refunds.filter(r => possible.has(r.id)) });
+  }
+  for (const { expense, refunds } of splits) {
+    if (refunds.some(r => contenders.get(r.id) !== 1)) continue;
+    const group = proposed.get(expense.id) ?? { expense, refunds: [] };
+    group.refunds.push(...refunds);
+    proposed.set(expense.id, group);
   }
   const result = new Map<string, RefundAdjustment>();
   for (const { expense, refunds } of proposed.values()) {

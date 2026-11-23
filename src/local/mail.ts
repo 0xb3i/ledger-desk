@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmod, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -291,24 +291,22 @@ export async function createMailIntegration(options: {
     return addDaysIsoDate(shanghaiTodayIso(now()), -7);
   }
 
-  async function readCountsAndIssues(active: MailConfig | null): Promise<{
-    recordCount: number;
-    skippedExistingCount: number;
-    issues: MailSyncIssue[];
-  }> {
-    if (!active) return { recordCount: 0, skippedExistingCount: 0, issues: [] };
+  async function readCountsAndIssues(active: MailConfig | null) {
+    if (!active) return { recordCount: 0, skippedExistingCount: 0, issueCount: 0, dismissedIssueCount: 0, issues: [] };
     const sid = sourceKey(active);
-    const [importedRow, skippedRow, issueRows] = await db.batch([
-      db.prepare("SELECT COUNT(*) AS count FROM local_mail_messages WHERE source_id=? AND status='imported'").bind(sid),
-      db.prepare("SELECT COUNT(*) AS count FROM local_mail_messages WHERE source_id=? AND status='skipped_existing'").bind(sid),
+    const [counts, issueRows] = await db.batch([
+      db.prepare(`SELECT COUNT(*) FILTER (WHERE status='imported') AS recordCount,
+        COUNT(*) FILTER (WHERE status='skipped_existing') AS skippedExistingCount,
+        COUNT(*) FILTER (WHERE status='invalid') AS issueCount,
+        COUNT(*) FILTER (WHERE dismissed_by_user=1) AS dismissedIssueCount
+        FROM local_mail_messages WHERE source_id=?`).bind(sid),
       db.prepare(`SELECT uid_validity, uid, subject, mail_date, error_message
         FROM local_mail_messages
         WHERE source_id=? AND status='invalid'
         ORDER BY COALESCE(mail_date, processed_at) DESC, uid DESC
         LIMIT 50`).bind(sid),
     ]);
-    const recordCount = Number((importedRow.results[0] as { count?: number } | undefined)?.count ?? 0);
-    const skippedExistingCount = Number((skippedRow.results[0] as { count?: number } | undefined)?.count ?? 0);
+    const totals = counts.results[0] as { recordCount: number; skippedExistingCount: number; issueCount: number; dismissedIssueCount: number };
     const issues: MailSyncIssue[] = (issueRows.results as unknown as {
       uid_validity: number; uid: number; subject: string; mail_date: string | null; error_message: string | null;
     }[]).map(row => ({
@@ -318,7 +316,7 @@ export async function createMailIntegration(options: {
       mailDate: row.mail_date,
       message: row.error_message || '邮件暂未自动解析，请核对。',
     }));
-    return { recordCount, skippedExistingCount, issues };
+    return { ...totals, issues };
   }
 
   async function buildStatus(): Promise<MailSyncStatus> {
@@ -327,7 +325,7 @@ export async function createMailIntegration(options: {
       computeSuggestedStartDate(accountId),
       readCountsAndIssues(config),
     ]);
-    const issueError = stats.issues.length ? `${stats.issues.length} 封招行邮件需要核对。` : null;
+    const issueError = stats.issueCount ? `${stats.issueCount} 封招行邮件需要核对。` : null;
     const lastError = persisted.lastError ?? issueError;
     return {
       configured: Boolean(config),
@@ -340,293 +338,130 @@ export async function createMailIntegration(options: {
       lastSyncAt: persisted.lastSyncAt,
       lastSuccessAt: persisted.lastSuccessAt,
       lastError,
-      recordCount: stats.recordCount,
-      skippedExistingCount: stats.skippedExistingCount,
+      ...stats,
       syncing,
       progress: syncing && progress ? { ...progress } : null,
-      issues: stats.issues,
     };
   }
 
-  async function recordMessageCheckpoint(params: {
-    sid: string;
-    uidValidity: number;
-    uid: number;
-    messageId: string | null;
-    mailDate: string | null;
-    subject: string;
-    status: 'imported' | 'skipped_existing' | 'ignored' | 'invalid';
-    transactionId: string | null;
-    errorMessage: string | null;
-    bodyPreview?: string | null;
-  }): Promise<void> {
-    await db.prepare(`INSERT INTO local_mail_messages
-      (source_id, uid_validity, uid, message_id, mail_date, subject, status, transaction_id, error_message, body_preview, processed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source_id, uid_validity, uid) DO UPDATE SET
-        message_id=excluded.message_id,
-        mail_date=excluded.mail_date,
-        subject=excluded.subject,
-        status=excluded.status,
-        transaction_id=excluded.transaction_id,
-        error_message=excluded.error_message,
-        body_preview=excluded.body_preview,
-        processed_at=excluded.processed_at`)
-      .bind(
-        params.sid, params.uidValidity, params.uid, params.messageId, params.mailDate,
-        params.subject.slice(0, 200), params.status, params.transactionId, params.errorMessage,
-        params.status === 'invalid' ? (params.bodyPreview ?? null) : null,
-        now().toISOString(),
-      ).run();
+  type MailMessage = Pick<FetchedMessage, 'uid' | 'internalDate' | 'decodeError'> & {
+    email: Pick<FetchedMessage['email'], 'messageId' | 'date' | 'subject' | 'text'>;
+  };
+
+  function receipt(active: MailConfig, uidValidity: number, uid: number) {
+    // The bounded key also round-trips through application backups without exposing the mailbox address.
+    const sourceHash = createHash('sha256').update(sourceKey(active)).digest('hex');
+    return { scope: `mail:${active.accountId}`, key: `imap:${sourceHash}:${uidValidity}:${uid}` };
   }
 
-  async function processMessage(
-    active: MailConfig,
-    sid: string,
-    uidValidity: number,
-    message: FetchedMessage,
-    isBackfill: boolean,
-  ): Promise<'imported' | 'skipped' | 'ignored' | 'invalid'> {
-    const existingCheckpoint = await db.prepare(
-      'SELECT status FROM local_mail_messages WHERE source_id=? AND uid_validity=? AND uid=?',
-    ).bind(sid, uidValidity, message.uid).first<{ status: string }>();
+  async function processMessage(active: MailConfig, sid: string, uidValidity: number, message: MailMessage, retryInvalid: boolean) {
+    const { email, uid } = message;
+    const checkpoint = await db.prepare('SELECT status FROM local_mail_messages WHERE source_id=? AND uid_validity=? AND uid=?')
+      .bind(sid, uidValidity, uid).first<{ status: string }>();
+    if (checkpoint && (checkpoint.status !== 'invalid' || !retryInvalid)) return 'skipped';
 
-    if (existingCheckpoint && (existingCheckpoint.status !== 'invalid' || !isBackfill)) {
+    const date = email.date ?? message.internalDate;
+    const mailDate = date?.toISOString() ?? null;
+    let unmatchedTemplate: string | null = null;
+    const finish = async (status: 'imported' | 'skipped_existing' | 'ignored' | 'invalid', transactionId: string | null = null,
+      error: string | null = null) => {
+      const preview = status === 'invalid' ? cleanBodyPreview(email.text) : null;
+      const complete = Boolean(preview && !message.decodeError && preview === email.text.trim());
+      await db.prepare(`INSERT INTO local_mail_messages
+        (source_id,uid_validity,uid,message_id,mail_date,subject,status,transaction_id,error_message,processed_at,body_preview,body_complete,unmatched_template)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id,uid_validity,uid) DO UPDATE SET
+        message_id=excluded.message_id,mail_date=excluded.mail_date,subject=excluded.subject,status=excluded.status,
+        transaction_id=excluded.transaction_id,error_message=excluded.error_message,processed_at=excluded.processed_at,
+        body_preview=excluded.body_preview,body_complete=excluded.body_complete,unmatched_template=excluded.unmatched_template
+        WHERE local_mail_messages.status IS NOT excluded.status OR local_mail_messages.message_id IS NOT excluded.message_id
+          OR local_mail_messages.subject IS NOT excluded.subject OR local_mail_messages.mail_date IS NOT excluded.mail_date
+          OR local_mail_messages.transaction_id IS NOT excluded.transaction_id OR local_mail_messages.error_message IS NOT excluded.error_message
+          OR local_mail_messages.body_preview IS NOT excluded.body_preview OR local_mail_messages.body_complete IS NOT excluded.body_complete
+          OR local_mail_messages.unmatched_template IS NOT excluded.unmatched_template`)
+        .bind(sid, uidValidity, uid, email.messageId, mailDate, email.subject.slice(0, 200), status, transactionId,
+          error, now().toISOString(), preview, Number(complete), status === 'invalid' ? unmatchedTemplate : null).run();
+      return status;
+    };
+
+    const identity = receipt(active, uidValidity, uid);
+    const recorded = await db.prepare('SELECT id FROM transactions WHERE idempotency_scope=? AND idempotency_key=?')
+      .bind(identity.scope, identity.key).first<{ id: string }>();
+    if (recorded) {
+      await finish('imported', recorded.id);
       return 'skipped';
     }
-
-    if (message.email.messageId) {
-      const dupMsg = await db.prepare(
-        "SELECT status FROM local_mail_messages WHERE source_id=? AND message_id=? AND status IN ('imported','skipped_existing') LIMIT 1",
-      ).bind(sid, message.email.messageId).first<{ status: string }>();
-      if (dupMsg) {
-        await recordMessageCheckpoint({
-          sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-          mailDate: (message.email.date ?? message.internalDate)?.toISOString() ?? null,
-          subject: message.email.subject, status: 'skipped_existing', transactionId: null, errorMessage: null,
-        });
-        return 'skipped';
-      }
+    if (email.messageId) {
+      const duplicate = await db.prepare(`SELECT transaction_id FROM local_mail_messages WHERE source_id=? AND message_id=?
+        AND status IN ('imported','skipped_existing') LIMIT 1`).bind(sid, email.messageId).first<{ transaction_id: string | null }>();
+      if (duplicate) return finish('skipped_existing', duplicate.transaction_id);
     }
+    if (message.decodeError) return finish('invalid', null, message.decodeError);
 
-    const referenceDate = message.email.date ?? message.internalDate ?? now();
-    const mailDateIso = (message.email.date ?? message.internalDate)?.toISOString() ?? null;
-    if (message.decodeError) {
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'invalid', transactionId: null, errorMessage: message.decodeError, bodyPreview: '',
-      });
-      return 'invalid';
+    const result = await parseCmbEmailBody(email.text, active.accountId, date ?? now());
+    if (result.status === 'not_transaction') return finish('ignored');
+    if (result.status === 'ambiguous' || result.status === 'invalid_date') return finish('invalid', null, result.message);
+
+    // Old backups may contain account-only receipts without the local mailbox checkpoints.
+    // A linked receipt belongs to its recorded source. An unlinked one needs an explicit decision.
+    const unclaimed = await db.prepare(`SELECT t.id FROM transactions t
+      WHERE ((t.idempotency_scope=? AND t.idempotency_key=?) OR (t.idempotency_scope=? AND t.idempotency_key=?))
+      AND NOT EXISTS(SELECT 1 FROM local_mail_messages m WHERE m.transaction_id=t.id AND m.status='imported') LIMIT 1`)
+      .bind(identity.scope, `imap:${uidValidity}:${uid}`, `mail-manual:${active.accountId}`, `mail-manual:${uidValidity}:${uid}`)
+      .first<{ id: string }>();
+    if (unclaimed) return finish('invalid', null, '旧版账单回执缺少邮箱来源，请核对已有账单；已入账可忽略，否则请补录。');
+
+    const parsed = result.status === 'parsed' ? result.parsed : null;
+    let input = parsed?.transaction;
+    if (parsed) {
+      const legacy = await db.prepare(`SELECT id FROM transactions WHERE account_id=? AND fingerprint=? AND occurred_at=?
+        AND amount_cents=? AND deleted_at IS NULL AND (idempotency_key IS NULL OR idempotency_key NOT LIKE 'imap:%') LIMIT 1`)
+        .bind(active.accountId, parsed.fingerprint, parsed.transaction.occurredAt, parsed.transaction.amountCents).first<{ id: string }>();
+      if (legacy) return finish('skipped_existing', legacy.id);
     }
-    const parsedResult = await parseCmbEmailBody(message.email.text, active.accountId, referenceDate);
-
-    if (parsedResult.status === 'not_transaction') {
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'ignored', transactionId: null, errorMessage: null,
-      });
-      return 'ignored';
-    }
-
-    if (parsedResult.status !== 'parsed') {
-      const tpl = parsedResult.status === 'unmatched' ? extractActionTemplate(message.email.text) : null;
-      const rule = tpl ? persisted.learnedTemplates?.[tpl] : undefined;
-      const draft = rule ? extractMailIssueDraft(message.email.text, mailDateIso) : null;
-      if (rule && draft?.amount && draft.occurredAt) {
-        try {
-          const learnedInput = normalizeInput(parseInput(transactionInputSchema, {
-            accountId: active.accountId,
-            occurredAt: draft.occurredAt,
-            kind: rule.kind,
-            ...(rule.kind === 'transfer' && rule.transferDirection ? { transferDirection: rule.transferDirection } : {}),
-            amount: draft.amount,
-            description: draft.description,
-            categoryId: rule.categoryId ?? null,
-            ...(rule.categoryId ? { categoryOverride: true } : {}),
-            note: '',
-          }));
-          const created = await createTransaction(db, learnedInput, {
-            source: 'import',
-            scope: `mail:${active.accountId}`,
-            key: `imap:${uidValidity}:${message.uid}`,
-          });
-          await recordMessageCheckpoint({
-            sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-            mailDate: mailDateIso, subject: message.email.subject,
-            status: 'imported', transactionId: created.transaction.id, errorMessage: null,
-          });
-          return created.duplicate ? 'skipped' : 'imported';
-        } catch {
-          // Fall through to record invalid checkpoint if learned draft fails validation
-        }
-      }
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'invalid', transactionId: null, errorMessage: parsedResult.message,
-        bodyPreview: cleanBodyPreview(message.email.text),
-      });
-      return 'invalid';
-    }
-
-    const { parsed } = parsedResult;
-    // Seamless transition: skip transactions already imported from Feishu/Shortcut
-    // with identical fingerprint, occurred_at, and amount_cents.
-    const priorLegacy = await db.prepare(`SELECT id FROM transactions
-      WHERE account_id=? AND fingerprint=? AND occurred_at=? AND amount_cents=?
-        AND deleted_at IS NULL
-        AND (idempotency_key IS NULL OR idempotency_key NOT LIKE 'imap:%')
-      LIMIT 1`).bind(
-      active.accountId, parsed.fingerprint, parsed.transaction.occurredAt, parsed.transaction.amountCents,
-    ).first<{ id: string }>();
-
-    if (priorLegacy) {
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'skipped_existing', transactionId: priorLegacy.id, errorMessage: null,
-      });
-      return 'skipped';
-    }
-
     try {
-      const created = await createTransaction(db, parsed.transaction, {
-        source: 'import',
-        scope: `mail:${active.accountId}`,
-        key: `imap:${uidValidity}:${message.uid}`,
-        fingerprint: parsed.fingerprint,
-        needsReview: parsed.needsReview,
-        sourceDetails: parsed.sourceDetails,
+      if (result.status === 'unmatched') {
+        unmatchedTemplate = extractActionTemplate(email.text);
+        const rule = unmatchedTemplate ? persisted.learnedTemplates?.[unmatchedTemplate] : undefined;
+        const draft = rule ? extractMailIssueDraft(email.text, mailDate) : null;
+        if (!rule || !draft?.amount || !draft.occurredAt) return finish('invalid', null, result.message);
+        input = normalizeInput(parseInput(transactionInputSchema, {
+          accountId: active.accountId, occurredAt: draft.occurredAt, kind: rule.kind,
+          transferDirection: rule.transferDirection, amount: draft.amount, description: draft.description,
+          categoryId: rule.categoryId ?? null, categoryOverride: Boolean(rule.categoryId), note: '',
+        }));
+      }
+      if (!input) throw new Error('无法解析邮件账单。');
+      const created = await createTransaction(db, input, {
+        ...identity, source: 'import', fingerprint: parsed?.fingerprint, needsReview: parsed?.needsReview, sourceDetails: parsed?.sourceDetails,
       });
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'imported', transactionId: created.transaction.id, errorMessage: null,
-      });
-      return created.duplicate ? 'skipped' : 'imported';
+      return finish('imported', created.transaction.id);
     } catch (error) {
-      await recordMessageCheckpoint({
-        sid, uidValidity, uid: message.uid, messageId: message.email.messageId,
-        mailDate: mailDateIso, subject: message.email.subject,
-        status: 'invalid', transactionId: null,
-        errorMessage: error instanceof ApiError && error.status === 409
-          ? '本地账单正在变化，请稍后重试同步。'
-          : '账单保存失败，请核对邮件内容。',
-        bodyPreview: cleanBodyPreview(message.email.text),
-      });
-      return 'invalid';
+      return finish('invalid', null, error instanceof ApiError && error.status === 409
+        ? '本地账单正在变化，请稍后重试同步。' : '账单保存失败，请核对邮件内容。');
     }
   }
 
-  async function resolvePendingIssues(active: MailConfig): Promise<number> {
+  async function resolvePendingIssues(active: MailConfig, learnedTemplate?: string): Promise<number> {
     const sid = sourceKey(active);
-    const pending = await db.prepare(`SELECT uid_validity, uid, message_id, mail_date, subject, body_preview
-      FROM local_mail_messages
-      WHERE source_id=? AND status='invalid'
-      ORDER BY uid ASC`).bind(sid).all<{
-      uid_validity: number; uid: number; message_id: string | null;
-      mail_date: string | null; subject: string; body_preview: string | null;
+    const pending = await db.prepare(`SELECT uid_validity, uid, message_id, mail_date, subject, body_preview, body_complete
+      FROM local_mail_messages WHERE source_id=? AND status='invalid' ORDER BY uid`).bind(sid).all<{
+      uid_validity: number; uid: number; message_id: string | null; mail_date: string | null; subject: string;
+      body_preview: string | null; body_complete: number | null;
     }>();
-    const rows = pending.results ?? [];
-    if (!rows.length) return 0;
-
-    const authCode = await secretStore.get(active.email).catch(() => null);
     let resolved = 0;
-
-    for (const row of rows) {
-      let body = row.body_preview ?? '';
-      if (row.body_preview === null && authCode && transport.fetchMessage) {
-        const fetched = await transport.fetchMessage({
-          host: active.host,
-          port: active.port,
-          email: active.email,
-          authCode,
-          mailbox: active.mailbox,
-        }, row.uid_validity, row.uid).catch(() => null);
-        if (fetched) {
-          body = cleanBodyPreview(fetched.email.text);
-          await db.prepare(
-            "UPDATE local_mail_messages SET body_preview=? WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
-          ).bind(body, sid, row.uid_validity, row.uid).run();
-        }
+    let authCode: string | null | undefined;
+    for (const row of pending.results) {
+      if (row.body_preview === '') continue; // Oversized or undecodable mail requires manual review.
+      if (learnedTemplate && row.body_preview && extractActionTemplate(row.body_preview) !== learnedTemplate) continue;
+      let message: MailMessage | null = null;
+      if (row.body_complete && row.body_preview) {
+        message = { uid: row.uid, internalDate: null, email: { date: row.mail_date ? new Date(row.mail_date) : null,
+          messageId: row.message_id, subject: row.subject, text: row.body_preview } };
+      } else if ((learnedTemplate || row.body_complete === null || row.body_preview === null) && transport.fetchMessage) {
+        if (authCode === undefined) authCode = await secretStore.get(active.email);
+        if (authCode) message = await transport.fetchMessage({ ...active, authCode }, row.uid_validity, row.uid).catch(() => null);
       }
-      if (!body) continue;
-
-      const refDate = row.mail_date ? new Date(row.mail_date) : now();
-      const parsedResult = await parseCmbEmailBody(body, active.accountId, refDate);
-      if (parsedResult.status === 'parsed') {
-        const { parsed } = parsedResult;
-        const priorLegacy = await db.prepare(`SELECT id FROM transactions
-          WHERE account_id=? AND fingerprint=? AND occurred_at=? AND amount_cents=?
-            AND deleted_at IS NULL
-            AND (idempotency_key IS NULL OR idempotency_key NOT LIKE 'imap:%')
-          LIMIT 1`).bind(
-          active.accountId, parsed.fingerprint, parsed.transaction.occurredAt, parsed.transaction.amountCents,
-        ).first<{ id: string }>();
-
-        if (priorLegacy) {
-          await recordMessageCheckpoint({
-            sid, uidValidity: row.uid_validity, uid: row.uid, messageId: row.message_id,
-            mailDate: row.mail_date, subject: row.subject,
-            status: 'skipped_existing', transactionId: priorLegacy.id, errorMessage: null,
-          });
-          resolved += 1;
-          continue;
-        }
-        try {
-          const created = await createTransaction(db, parsed.transaction, {
-            source: 'import',
-            scope: `mail:${active.accountId}`,
-            key: `imap:${row.uid_validity}:${row.uid}`,
-            fingerprint: parsed.fingerprint,
-            needsReview: parsed.needsReview,
-            sourceDetails: parsed.sourceDetails,
-          });
-          await recordMessageCheckpoint({
-            sid, uidValidity: row.uid_validity, uid: row.uid, messageId: row.message_id,
-            mailDate: row.mail_date, subject: row.subject,
-            status: 'imported', transactionId: created.transaction.id, errorMessage: null,
-          });
-          resolved += 1;
-          continue;
-        } catch {
-          // leave invalid if save fails
-        }
-      }
-
-      const tpl = extractActionTemplate(body);
-      const rule = tpl ? persisted.learnedTemplates?.[tpl] : undefined;
-      if (!rule) continue;
-      const draft = extractMailIssueDraft(body, row.mail_date);
-      if (!draft.amount || !draft.occurredAt) continue;
-      try {
-        const learnedInput = normalizeInput(parseInput(transactionInputSchema, {
-          accountId: active.accountId,
-          occurredAt: draft.occurredAt,
-          kind: rule.kind,
-          ...(rule.kind === 'transfer' && rule.transferDirection ? { transferDirection: rule.transferDirection } : {}),
-          amount: draft.amount,
-          description: draft.description,
-          categoryId: rule.categoryId ?? null,
-          ...(rule.categoryId ? { categoryOverride: true } : {}),
-          note: '',
-        }));
-        const created = await createTransaction(db, learnedInput, {
-          source: 'import',
-          scope: `mail:${active.accountId}`,
-          key: `imap:${row.uid_validity}:${row.uid}`,
-        });
-        await recordMessageCheckpoint({
-          sid, uidValidity: row.uid_validity, uid: row.uid, messageId: row.message_id,
-          mailDate: row.mail_date, subject: row.subject,
-          status: 'imported', transactionId: created.transaction.id, errorMessage: null,
-        });
-        resolved += 1;
-      } catch {
-        // leave invalid if save fails
-      }
+      if (message && await processMessage(active, sid, row.uid_validity, message, true) !== 'invalid') resolved++;
     }
     return resolved;
   }
@@ -709,7 +544,7 @@ export async function createMailIntegration(options: {
         persisted.unfilteredBackfillComplete = true;
       }
       persisted.lastError = null;
-      if (!stats.issues.length) persisted.lastSuccessAt = now().toISOString();
+      if (!stats.issueCount) persisted.lastSuccessAt = now().toISOString();
     } catch (error) {
       persisted.lastError = error instanceof Error ? error.message : 'QQ 邮箱同步暂未完成，请稍后重试。';
     } finally {
@@ -896,8 +731,8 @@ export async function createMailIntegration(options: {
       if (fetched) {
         body = cleanBodyPreview(fetched.email.text);
         await db.prepare(
-          "UPDATE local_mail_messages SET body_preview=? WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
-        ).bind(body, sid, uidValidity, uid).run();
+          "UPDATE local_mail_messages SET body_preview=?,body_complete=? WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
+        ).bind(body, Number(!fetched.decodeError && body === fetched.email.text.trim()), sid, uidValidity, uid).run();
       }
     }
 
@@ -922,8 +757,8 @@ export async function createMailIntegration(options: {
     }
     const sid = sourceKey(config);
     const existing = await db.prepare(
-      "SELECT status, body_preview FROM local_mail_messages WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
-    ).bind(sid, uidValidity, uid).first<{ status: string; body_preview: string | null }>();
+      "SELECT unmatched_template FROM local_mail_messages WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
+    ).bind(sid, uidValidity, uid).first<{ unmatched_template: string | null }>();
     if (!existing) throw new ApiError(404, 'MAIL_ISSUE_NOT_FOUND', '这条待处理邮件不存在或已处理。');
 
     const rawBody = await c.req.json();
@@ -933,15 +768,14 @@ export async function createMailIntegration(options: {
     }));
     const created = await createTransaction(db, input, {
       source: 'manual',
-      scope: `mail-manual:${config.accountId}`,
-      key: `mail-manual:${uidValidity}:${uid}`,
+      ...receipt(config, uidValidity, uid),
     });
     await db.prepare(
-      "UPDATE local_mail_messages SET status='imported', transaction_id=?, error_message=NULL, body_preview=NULL, processed_at=? WHERE source_id=? AND uid_validity=? AND uid=?",
+      "UPDATE local_mail_messages SET status='imported', transaction_id=?, error_message=NULL, body_preview=NULL, body_complete=0, unmatched_template=NULL, processed_at=? WHERE source_id=? AND uid_validity=? AND uid=?",
     ).bind(created.transaction.id, now().toISOString(), sid, uidValidity, uid).run();
 
     // Learn this email's action template so remaining and future similar emails are auto-processed
-    const tpl = existing.body_preview ? extractActionTemplate(existing.body_preview) : null;
+    const tpl = existing.unmatched_template;
     if (tpl) {
       persisted = {
         ...persisted,
@@ -956,15 +790,30 @@ export async function createMailIntegration(options: {
       };
       await savePersistedState(config, persisted);
     }
-    const autoResolvedCount = await resolvePendingIssues(config);
+    const autoResolvedCount = tpl ? await resolvePendingIssues(config, tpl) : 0;
     return c.json({ data: { transaction: created.transaction, autoResolvedCount, status: await buildStatus() } }, 201);
   });
 
-  routes.post('/mail/issues/dismiss-all', async c => {
+  const issueSourceSchema = z.object({ email: mailConfigSchema.shape.email, accountId: z.string().min(1) });
+  function requireIssueSource(body: z.infer<typeof issueSourceSchema>) {
     if (!config) throw new ApiError(404, 'MAIL_NOT_CONFIGURED', '尚未配置 QQ 邮箱同步。');
-    await db.prepare(
-      "UPDATE local_mail_messages SET status='ignored', error_message=NULL, body_preview=NULL WHERE source_id=? AND status='invalid'",
-    ).bind(sourceKey(config)).run();
+    if (body.email !== config.email || body.accountId !== config.accountId) {
+      throw new ApiError(409, 'MAIL_SOURCE_CHANGED', '邮箱配置已更新，请刷新待核对列表。');
+    }
+    return sourceKey(config);
+  }
+  const dismissIssueSql = "UPDATE local_mail_messages SET status='ignored', dismissed_by_user=1 WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'";
+  routes.post('/mail/issues/dismiss-all', async c => {
+    const body = issueSourceSchema.extend({
+      issues: z.array(z.object({ uidValidity: z.number().int().positive(), uid: z.number().int().positive() })).min(1).max(50),
+    }).parse(await c.req.json());
+    const sid = requireIssueSource(body);
+    await db.batch(body.issues.map(issue => db.prepare(dismissIssueSql).bind(sid, issue.uidValidity, issue.uid)));
+    return c.json({ data: await buildStatus() });
+  });
+  routes.post('/mail/issues/restore-dismissed', async c => {
+    const sid = requireIssueSource(issueSourceSchema.parse(await c.req.json()));
+    await db.prepare("UPDATE local_mail_messages SET status='invalid', dismissed_by_user=0 WHERE source_id=? AND dismissed_by_user=1").bind(sid).run();
     return c.json({ data: await buildStatus() });
   });
 
@@ -975,9 +824,7 @@ export async function createMailIntegration(options: {
     if (!Number.isInteger(uidValidity) || uidValidity <= 0 || !Number.isInteger(uid) || uid <= 0) {
       throw new ApiError(400, 'INVALID_UID', '无效的邮件标识。');
     }
-    await db.prepare(
-      "UPDATE local_mail_messages SET status='ignored', error_message=NULL, body_preview=NULL WHERE source_id=? AND uid_validity=? AND uid=? AND status='invalid'",
-    ).bind(sourceKey(config), uidValidity, uid).run();
+    await db.prepare(dismissIssueSql).bind(sourceKey(config), uidValidity, uid).run();
     return c.json({ data: await buildStatus() });
   });
 

@@ -178,6 +178,21 @@ describe('独立心愿单 API', () => {
     expect((await order()).sort()).toEqual(['丙', '乙', '甲'].sort());
   });
 
+  it('两次并发排序均保留，第二页的心愿可以提到队首', async () => {
+    const items = [];
+    for (let i = 0; i < 31; i++) items.push(await create({ title: `心愿 ${i}` }));
+    const ids = items.map(item => item.id);
+    const moves = await Promise.all([
+      request(`/wishlist/${ids[0]}/position`, 'POST', { position: 2 }),
+      request(`/wishlist/${ids[3]}/position`, 'POST', { position: 3 }),
+    ]);
+    expect(moves.map(r => r.status)).toEqual([200, 200]);
+    expect((await list()).items.slice(0, 4).map(i => i.id)).toEqual([ids[1], ids[0], ids[3], ids[2]]);
+    const last = (await list('?page=2')).items[0];
+    await read(await request(`/wishlist/${last.id}/position`, 'POST', { position: 1 }));
+    expect((await list()).items[0].id).toBe(last.id);
+  });
+
   it('校验空名称、长度、金额精度、危险链接、版本和筛选参数', async () => {
     for (const extra of [
       { title: '   ' }, { title: '字'.repeat(201) }, { note: '字'.repeat(2001) },

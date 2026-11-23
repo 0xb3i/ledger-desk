@@ -10,6 +10,7 @@ import { MAX_CENTS, normalizeDate, textId } from './ledger/domain';
 import { categoryRuleInputSchema, toCategoryRule, type CategoryRuleRow } from './ledger/classification';
 import { categorySchema, categoryNameKey, mapCategory, builtinCategorySeeds } from './ledger/categories';
 import { wishlistItemSchema, toWishlistItem, type WishlistRow } from './wishlist';
+import { subscriptionBackupSchema, subscriptionColumns, toStoredSubscription, type SubscriptionRow } from './subscriptions';
 import { tagRuleSchema, tagSchema, toTag, toTagRule, type TagRow, type TagRuleRow, type TransactionTagRow } from './ledger/tags';
 import { backupBudgetSchema } from './budgets';
 import tagSeeds from './ledger/tag-seeds.json';
@@ -67,7 +68,8 @@ const backupSchema = z.discriminatedUnion('schemaVersion', [
   z.object({ ...backupFields, categories: z.array(categorySchema), schemaVersion: z.literal(6), transactions: z.array(transactionSchema), categoryRules: z.array(ruleSchema), wishlistItems: z.array(wishlistItemSchema) }),
   z.object({ ...backupFields, categories: z.array(categorySchema), schemaVersion: z.literal(7), transactions: z.array(transactionSchema), categoryRules: z.array(ruleSchema), wishlistItems: z.array(wishlistItemSchema), budget: backupBudgetSchema,
     tags: z.array(tagSchema).optional(), tagRules: z.array(tagRuleSchema).optional(),
-    transactionTags: z.array(z.object({ transactionId: textId, categoryId: textId, tagId: textId.nullable() })).optional().default([]) }),
+    transactionTags: z.array(z.object({ transactionId: textId, categoryId: textId, tagId: textId.nullable() })).optional().default([]),
+    subscriptions: z.array(subscriptionBackupSchema).optional().default([]) }),
 ]);
 
 /** Bound each JSON parameter below D1's row/string limit, including non-ASCII data. */
@@ -104,7 +106,7 @@ function canonicalSourceSql(expression: string): string {
 
 export const backupRoutes = new Hono<ApiEnv>();
 backupRoutes.get('/backup', async c => {
-  const [accounts, categories, transactions, rules, wishlist, budgetRows, tagRows, tagRuleRows, transactionTagRows] = await c.env.DB.batch([
+  const [accounts, categories, transactions, rules, wishlist, budgetRows, tagRows, tagRuleRows, transactionTagRows, subscriptionRows] = await c.env.DB.batch([
     c.env.DB.prepare('SELECT * FROM accounts ORDER BY id'), c.env.DB.prepare('SELECT * FROM categories ORDER BY id'),
     c.env.DB.prepare('SELECT * FROM transactions ORDER BY id'),
     c.env.DB.prepare('SELECT * FROM category_rules ORDER BY id'),
@@ -112,6 +114,7 @@ backupRoutes.get('/backup', async c => {
     c.env.DB.prepare('SELECT amount_cents FROM monthly_budget WHERE id=1'),
     c.env.DB.prepare('SELECT * FROM tags ORDER BY id'), c.env.DB.prepare('SELECT * FROM tag_rules ORDER BY id'),
     c.env.DB.prepare('SELECT * FROM transaction_tags ORDER BY transaction_id'),
+    c.env.DB.prepare('SELECT * FROM subscriptions ORDER BY id'),
   ]);
   const transactionRows = transactions.results as unknown as TransactionRow[];
   const receipts: RequestReceipt[] = transactionRows.flatMap(row => row.idempotency_scope === null ? [] : [{
@@ -124,12 +127,14 @@ backupRoutes.get('/backup', async c => {
     wishlistItems: (wishlist.results as unknown as WishlistRow[]).map(toWishlistItem),
     tags: (tagRows.results as unknown as TagRow[]).map(toTag), tagRules: (tagRuleRows.results as unknown as TagRuleRow[]).map(toTagRule),
     transactionTags: (transactionTagRows.results as unknown as TransactionTagRow[]).map(row => ({ transactionId: row.transaction_id, categoryId: row.category_id, tagId: row.tag_id })),
-    budget: (amount => amount === null || amount === undefined ? null : { amountCents: Number(amount) })((budgetRows.results[0] as { amount_cents: number | null } | undefined)?.amount_cents) };
+    budget: (amount => amount === null || amount === undefined ? null : { amountCents: Number(amount) })((budgetRows.results[0] as { amount_cents: number | null } | undefined)?.amount_cents),
+    subscriptions: (subscriptionRows.results as unknown as SubscriptionRow[]).map(toStoredSubscription) };
   return c.json({ data });
 });
 backupRoutes.post('/backup/restore', async c => {
   const input = backupSchema.parse(await c.req.json());
   const backup = { ...input, wishlistItems: 'wishlistItems' in input ? input.wishlistItems : [],
+    subscriptions: 'subscriptions' in input ? input.subscriptions : [],
     budget: 'budget' in input ? input.budget : null,
     categoryRules: 'categoryRules' in input ? input.categoryRules : [],
     categories: input.categories.map(category => input.schemaVersion >= 4 ? category as Category
@@ -145,7 +150,7 @@ backupRoutes.post('/backup/restore', async c => {
   if (backup.transactions.some(transaction => transaction.isFixed && transaction.kind !== 'expense')) {
     throw new ApiError(422, 'INVALID_FIXED_EXPENSE', '只有支出可以标记为固定支出。');
   }
-  for (const [name, rows] of Object.entries({ accounts: backup.accounts, categories: backup.categories, transactions: backup.transactions, categoryRules: backup.categoryRules, wishlistItems: backup.wishlistItems })) {
+  for (const [name, rows] of Object.entries({ accounts: backup.accounts, categories: backup.categories, transactions: backup.transactions, categoryRules: backup.categoryRules, wishlistItems: backup.wishlistItems, subscriptions: backup.subscriptions })) {
     if (new Set(rows.map(row => row.id)).size !== rows.length) throw new ApiError(422, 'DUPLICATE_ID', `备份的 ${name} 存在重复记录 ID。`);
   }
   if (new Set(backup.categories.map(category => categoryNameKey(category.name))).size !== backup.categories.length) {
@@ -175,7 +180,7 @@ backupRoutes.post('/backup/restore', async c => {
   if (backup.receipts.some(receipt => !transactionIds.has(receipt.transactionId))) {
     throw new ApiError(422, 'INCOMPLETE_BACKUP', '备份中的请求回执缺少对应账目。');
   }
-  const statements: D1PreparedStatement[] = [], insertIndices: number[] = [], wishlistInsertIndices: number[] = [];
+  const statements: D1PreparedStatement[] = [], insertIndices: number[] = [], wishlistInsertIndices: number[] = [], subscriptionInsertIndices: number[] = [];
   let budgetIndex = -1;
   const operationId = crypto.randomUUID();
   function addTable(table: string, rows: Record<string, unknown>[], columns: string[], countInResult?: number[], compareColumns = columns) {
@@ -195,18 +200,30 @@ backupRoutes.post('/backup/restore', async c => {
       statements.push(c.env.DB.prepare(`INSERT INTO ${table} (${columns.join(',')}) SELECT ${values.join(',')} FROM json_each(?) input WHERE true ON CONFLICT(id) DO NOTHING RETURNING id`).bind(json));
     }
   }
-  if (input.schemaVersion === 7 && input.tags !== undefined && input.tagRules !== undefined) {
-    // Replace the migration catalog only when both tables match the seed snapshot
-    // exactly and the target ledger is empty. Keep this check inside the restore batch.
-    const catalogSql = (table: string, columns: string[]) =>
-      `(SELECT json_group_array(json_array(${columns.join(',')})) FROM (SELECT * FROM ${table} ORDER BY id))`;
-    const seedGuard = `${operationId}:tag-seeds`;
+  const catalogSql = (table: string, columns: string[]) =>
+    `(SELECT json_group_array(json_array(${columns.join(',')})) FROM (SELECT * FROM ${table} ORDER BY id))`;
+  const seedGuard = `${operationId}:tag-seeds`;
+  const restoreTagCatalog = input.schemaVersion === 7 && input.tags !== undefined && input.tagRules !== undefined;
+  const omittedSeeds = input.schemaVersion >= 4 ? builtinCategorySeeds.filter(category => !categoryIds.has(category.id)) : [];
+  if (restoreTagCatalog || omittedSeeds.length) {
     statements.push(c.env.DB.prepare(`INSERT INTO restore_guards(id,valid) SELECT ?,1
       WHERE NOT EXISTS(SELECT 1 FROM transactions)
         AND NOT EXISTS(SELECT 1 FROM transaction_tags)
         AND ${catalogSql('tags', tagColumns)} = ?
         AND ${catalogSql('tag_rules', tagRuleColumns)} = ?`)
       .bind(seedGuard, JSON.stringify(tagSeeds.tags), JSON.stringify(tagSeeds.tag_rules)));
+  }
+  if (omittedSeeds.length) {
+    // A deleted default may have been recreated under a new ID with its old name.
+    // Release absent seeds only when the target still has its entire original catalog.
+    const seedRows = [...builtinCategorySeeds].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      .map(c => [c.id, c.name, c.kind, c.icon, c.color, c.version, categoryNameKey(c.name)]);
+    statements.push(c.env.DB.prepare(`DELETE FROM categories WHERE id IN (SELECT value FROM json_each(?))
+      AND EXISTS(SELECT 1 FROM restore_guards WHERE id=?) AND NOT EXISTS(SELECT 1 FROM category_rules)
+      AND ${catalogSql('categories', ['id', 'name', 'kind', 'icon', 'color', 'version', 'name_key'])} = ?`)
+      .bind(JSON.stringify(omittedSeeds.map(c => c.id)), seedGuard, JSON.stringify(seedRows)));
+  }
+  if (restoreTagCatalog) {
     statements.push(c.env.DB.prepare('DELETE FROM tags WHERE EXISTS(SELECT 1 FROM restore_guards WHERE id=?)').bind(seedGuard));
   }
   addTable('accounts', backup.accounts.map(a => ({ ...a, archived: a.archived ? 1 : 0 })), ['id', 'name', 'bank', 'currency', 'archived']);
@@ -264,6 +281,10 @@ backupRoutes.post('/backup/restore', async c => {
   addTable('wishlist_items', backup.wishlistItems.map(item => Object.fromEntries(
     Object.entries(wishlistColumns).map(([column, key]) => [column, item[key]]),
   )), Object.keys(wishlistColumns), wishlistInsertIndices, Object.keys(wishlistColumns).filter(column => column !== 'position'));
+  // 订阅：同 ID 且内容一致时跳过，内容不同则整个恢复失败。
+  addTable('subscriptions', backup.subscriptions.map(item => Object.fromEntries(
+    Object.entries(subscriptionColumns).map(([column, key]) => [column, key === 'autoRenew' ? Number(item.autoRenew) : item[key]]),
+  )), Object.keys(subscriptionColumns), subscriptionInsertIndices);
   const tags = 'tags' in input ? input.tags ?? [] : [];
   const tagRules = 'tagRules' in input ? input.tagRules ?? [] : [];
   const tagsById = new Map(tags.map(tag => [tag.id, tag]));
@@ -295,12 +316,14 @@ backupRoutes.post('/backup/restore', async c => {
     const results = await c.env.DB.batch(statements);
     const inserted = insertIndices.reduce((sum, index) => sum + results[index].results.length, 0);
     const wishlistInserted = wishlistInsertIndices.reduce((sum, index) => sum + results[index].results.length, 0);
+    const subscriptionsInserted = subscriptionInsertIndices.reduce((sum, index) => sum + results[index].results.length, 0);
     const data: BackupRestoreResult = { inserted, skipped: backup.transactions.length - inserted,
       wishlistInserted, wishlistSkipped: backup.wishlistItems.length - wishlistInserted,
+      subscriptionsInserted, subscriptionsSkipped: backup.subscriptions.length - subscriptionsInserted,
       budgetRestored: budgetIndex >= 0 && results[budgetIndex].results.length > 0 };
     return c.json({ data });
   } catch (error) {
-    if (error instanceof Error && /constraint|UNIQUE|FOREIGN KEY/i.test(error.message)) throw new ApiError(409, 'RESTORE_CONFLICT', '备份与当前数据存在账目、心愿单、预算、分类规则、二级标签、请求回执或同名账户冲突，未写入任何数据。请先核对。');
+    if (error instanceof Error && /constraint|UNIQUE|FOREIGN KEY/i.test(error.message)) throw new ApiError(409, 'RESTORE_CONFLICT', '备份与当前数据存在账目、心愿单、订阅、预算、分类规则、二级标签、请求回执或同名账户冲突，未写入任何数据。请先核对。');
     throw error;
   }
 });

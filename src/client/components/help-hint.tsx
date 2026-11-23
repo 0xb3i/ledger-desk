@@ -1,8 +1,9 @@
 import { CircleHelp } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /* 标题旁的说明：平时只露一个问号，悬停或聚焦时显示文字，替代占位的说明段落 */
-export function HelpHint({ children }: { children: React.ReactNode }) {
+export function HelpHint({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -10,7 +11,7 @@ export function HelpHint({ children }: { children: React.ReactNode }) {
           <CircleHelp className="size-3.5" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-64 text-xs leading-relaxed font-normal">{children}</TooltipContent>
+      <TooltipContent side="bottom" className={cn('max-w-64 text-xs leading-relaxed font-normal', className)}>{children}</TooltipContent>
     </Tooltip>
   );
 }

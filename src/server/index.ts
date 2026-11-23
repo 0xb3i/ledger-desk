@@ -12,6 +12,7 @@ import { categoryRuleRoutes } from './ledger/classification';
 import { categoryRoutes } from './ledger/categories';
 import { categoryDeletionRoutes } from './ledger/category-deletion';
 import { wishlistRoutes } from './wishlist';
+import { subscriptionRoutes } from './subscriptions';
 import { budgetRoutes } from './budgets';
 import { tagRoutes } from './ledger/tags';
 
@@ -58,6 +59,7 @@ export function createApiApp(integrations?: Hono<ApiEnv>) {
   app.route('/api', categoryRoutes);
   app.route('/api', categoryDeletionRoutes);
   app.route('/api', wishlistRoutes);
+  app.route('/api', subscriptionRoutes);
   app.route('/api', budgetRoutes);
   app.route('/api', tagRoutes);
   app.route('/api', backupRoutes);

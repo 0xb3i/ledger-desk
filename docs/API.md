@@ -16,13 +16,14 @@
 
 ## QQ 邮箱同步
 
-- `GET /api/integrations/mail/status` → `MailSyncStatus`。返回配置状态、已连接 QQ 邮箱地址、默认建议起始日期 `suggestedStartDate`、已导入笔数、衔接跳过历史重复笔数、最近同步时间、错误信息以及未能自动解析的招行邮件列表 `issues`。不返回授权码。
+- `GET /api/integrations/mail/status` → `MailSyncStatus`。返回配置状态、已连接 QQ 邮箱地址、默认建议起始日期 `suggestedStartDate`、已导入笔数、衔接跳过历史重复笔数、最近同步时间、错误信息以及待核对邮件总数 `issueCount`、最近 50 封待核对邮件 `issues` 和当前可恢复的已忽略邮件数 `dismissedIssueCount`。不返回授权码。
 - `POST /api/integrations/mail/config`，输入 `{email,authCode?,syncStartDate,accountId?}` → `MailSyncStatus`。先验证 `imap.qq.com:993` 只读登录与 `EXAMINE INBOX`，通过后将 16 位授权码写入 macOS 系统钥匙串、将非凭据配置写入权限 `600` 的 `mail.json`，并立即执行一次同步。
 - `DELETE /api/integrations/mail/config` → `MailSyncStatus`。停用邮箱同步、删除 `mail.json` 并移除系统钥匙串中的授权码；已导入的本地账目完整保留。
 - `POST /api/integrations/mail/sync`，输入 `{}` 执行增量同步，或输入 `{startDate,endDate}` 执行按日期范围补扫 → `MailSyncStatus`。
 - `GET /api/integrations/mail/issues/:uidValidity/:uid` → `MailIssueDetail`，返回待核对邮件摘要和补录草稿。
 - `POST /api/integrations/mail/issues/:uidValidity/:uid/record`，输入 `TransactionInput` → `{transaction,autoResolvedCount,status}`。
-- `POST /api/integrations/mail/issues/dismiss-all` → `MailSyncStatus`，忽略所有待核对邮件。
+- `POST /api/integrations/mail/issues/dismiss-all`，输入 `{email,accountId,issues:[{uidValidity,uid}]}` → `MailSyncStatus`，仅忽略提交时选中的邮件，每次最多 50 封。
+- `POST /api/integrations/mail/issues/restore-dismissed`，输入 `{email,accountId}` → `MailSyncStatus`，恢复该邮箱和账户下手动忽略的邮件。旧版已经忽略的邮件缺少操作来源，无法区分手动忽略和自动过滤。
 - `POST /api/integrations/mail/issues/:uidValidity/:uid/dismiss`，输入 `{}` → `MailSyncStatus`，忽略单条无法解析的招行邮件提醒。
 
 后台服务启动时和每 5 分钟通过只读 IMAP（`EXAMINE INBOX` + `BODY.PEEK`）检查新邮件，不改动邮件未读/已读状态。解析器沿用 `1.1.5` SHA-256 交易指纹；从原飞书平滑切换时，重叠日期内已在飞书导入的历史账单会自动跳过。原飞书定时同步已停用。
@@ -32,6 +33,7 @@
 - `GET /api/bootstrap` → `Bootstrap`。
 - `GET /api/summary?month=2026-11` → `Summary`。
 - `GET /api/transactions` → `TransactionPage`。支持 `month`、`search`、`kind`、`status`、`page`、`deleted`、`date`、`accountId`、`categoryId`、`sort`、`pageSize`；`uncategorized` 表示无分类。`sort` 支持 `newest`（默认）、`oldest`、`largest`、`smallest`；`pageSize` 默认 30，界面使用 12。返回的 `summary` 和 `daily` 覆盖完整筛选范围，仅汇总已确认且未撤销账单，不是当前页小计。
+  通过 `spendCategory` 可查看构成分类实际支出的明细。它仅计入已确认、扣除退款后仍有支出的流水。传分类 ID 查看该类目，传 `transfer` 查看未分类转出，传 `uncategorized` 查看其余未分类支出。可同时传 `tagId` 筛选二级标签。
 - `POST /api/transactions`，输入 `TransactionInput` → `Transaction`；请求头 `Idempotency-Key` 必填，一次操作及其重试沿用相同值。
 - `PATCH /api/transactions/:id`，输入 `TransactionInput & {version:number,reviewStatus?:ReviewStatus}` → `Transaction`，版本冲突返回 409。
 - `POST /api/transactions/:id/archive`，输入 `{version}` → `Transaction`。
@@ -96,6 +98,26 @@
 
 所有修改检查版本，过期返回 409。商品链接仅允许不含用户名密码的 HTTP(S) 地址。备份包含已购、已移除心愿，恢复与账目共用事务。
 
+## 订阅
+
+以下接口均使用管理会话认证，写入校验 Origin。房租、会员、软件等周期扣费独立于账目，只做提醒与合计，不生成财务流水，避免与银行扣款重复。金额以整数分保存，输入为十进制文本；日期为上海时区的 `YYYY-MM-DD`。
+
+- `SubscriptionInput`：`{name, category:'housing'|'software'|'membership'|'utility'|'insurance'|'other', amount, cycle:'weekly'|'monthly'|'quarterly'|'semiannual'|'yearly', nextDueDate, endDate?:string|null, autoRenew, remindDays:0–60, note}`。
+- `autoRenew` 是扣款方式：`true` 自动扣款，过了扣费日自动推到下一期，只在订阅页列出、不提醒；`false` 手动付款（如房租），到日子前在铃铛提醒，过了付款日保持逾期，直到标记已付款。`nextDueDate` 是下次扣费（付款）日，也是锚定日：按月的周期保留锚定日的几号，小月取月末，不会逐期漂移。
+- `endDate` 是到期日：服务用到这天为止，这天及以后不再扣费（例如房租交到 6 月 30 日就填 `2027-06-30`，6 月 30 日那期不扣）。没有下一次扣费、但还没到到期日时状态为 `ending`，仍在进行中，进入提醒窗口时铃铛提示即将到期；到了到期日状态为 `finished`，归入已到期，不再提醒、不计入合计。清空或延后到期日即恢复续费。
+- 返回的 `Subscription` 附带服务端按今天推算的 `dueDate`（下次扣费日；不再续费时为到期日）、`daysLeft`、`state`（`upcoming`／`soon`／`overdue`／`ending`／`finished`，`soon` 表示进入 `remindDays` 提醒窗口；旧版本手动结束的为 `ended`）、`isFinal`（到期前的最后一次扣费）和按月折算的 `monthlyCents`；`sourceKey` 非空表示从固定支出账单导入。
+- `GET /api/subscriptions?status=active|ended&search=` → `SubscriptionList`。进行中的项目按扣费日升序；合计字段 `monthlyCents`、`yearlyCents`、`remainingThisMonthCents`（本月剩余几天内还要付的，含逾期未续的手动项目，到期日当天及以后不算）和 `byCategory` 只统计进行中的项目，不受搜索影响。
+- `GET /api/subscriptions/reminders` → `SubscriptionReminders`，只含手动付款（`autoRenew=false`）里 `soon`、`overdue` 以及进入提醒窗口的 `ending` 项目，供右上角铃铛使用；自动扣款的从不提醒。
+- `GET /api/subscriptions/suggestions` → `SubscriptionSuggestionList`。识别可能的订阅：最近两年已确认的支出按名称（去掉月份数字与标点）和金额归组，至少 3 笔、相邻间隔都接近同一周期的整数倍，且最近一笔距今不超过两个半周期；标记为固定支出的账单只按名称归组（金额可变），2 笔即可。同来源或同名进行中的订阅、以及被忽略过的不再出现。`autoRenew` 为建议的扣款方式（居住类默认手动付款）。只读，不改动账单。
+- `POST /api/subscriptions/suggestions/accept`，输入 `{key, autoRenew}` → `Subscription`（201）。按服务端重新识别的结果新建订阅，扣款方式由用户决定；建议已处理或不再成立时返回 409。`POST /api/subscriptions/suggestions/dismiss`，输入 `{key}` → `{dismissed:true}`，记住这条识别结果，之后不再推荐。
+- `GET /api/subscriptions/:id` → `Subscription`，包含已结束记录。
+- `POST /api/subscriptions`，输入 `SubscriptionInput & {id:string}` → `Subscription`。相同 UUID 与内容重试返回现有记录，内容不同返回 409。
+- `PUT /api/subscriptions/:id`，输入 `SubscriptionInput & {version:number}` → `Subscription`；旧版本手动结束的项目需先恢复续费。
+- `POST /api/subscriptions/:id/renew`，输入 `{version:number}` → `Subscription`。已付款：把当前这一期（`dueDate`）往后推一个周期，供手动付款的订阅使用；已不再续费的返回 409。
+- `POST /api/subscriptions/:id/end`，输入 `{version:number}` → `Subscription`。不再续费：把到期日设为下次扣费日，已付的一期照常用到那天。`POST /api/subscriptions/:id/restore` 恢复续费：清除到期日（以及旧版本的手动结束），按原周期继续。
+
+所有修改检查版本，过期返回 409。
+
 ## 月度预算
 
 月度预算是一个总额，每个月都按同一金额计算剩余额度与每天可花，不按类目拆分。
@@ -107,10 +129,10 @@
 
 ## 备份
 
-- `GET /api/backup` → `Backup`，下载轻记 JSON，包含已撤销账目、结构化来源、请求回执和全部心愿，不包含密钥、会话、心愿创建请求哈希或完整历史审计。
-- `POST /api/backup/restore`，输入 `Backup` → `BackupRestoreResult`，`inserted`／`skipped` 统计账目，`wishlistInserted`／`wishlistSkipped` 统计心愿，`budgetRestored` 表示是否写入了月度预算；同 ID 且内容相同跳过，有差异返回 409，整批原子写入，不覆盖现有记录。
+- `GET /api/backup` → `Backup`，下载轻记 JSON，包含已撤销账目、结构化来源、请求回执、全部心愿和订阅，不包含密钥、会话、心愿创建请求哈希或完整历史审计。
+- `POST /api/backup/restore`，输入 `Backup` → `BackupRestoreResult`，`inserted`／`skipped` 统计账目，`wishlistInserted`／`wishlistSkipped` 统计心愿，`subscriptionsInserted`／`subscriptionsSkipped` 统计订阅，`budgetRestored` 表示是否写入了月度预算；同 ID 且内容相同跳过，有差异返回 409，整批原子写入，不覆盖现有记录。
 
-导出为 `schemaVersion: 7`，包含二级标签、标签规则、账单的手动标签和固定支出排除标记，以及月度预算、心愿单（含排队顺序 `position`）、转账方向、类目图标、颜色与版本、固定支出标记、分类来源及用户分类规则（包括内置规则的用户覆盖）。代码内的默认规则不重复写入备份。恢复同时接受版本 1–7，旧备份不修改现有心愿单与预算；预算在当前未设置时写入，金额相同视为已有，不同则整批冲突；版本 1 缺失的固定标记按 `false` 处理，旧非空分类、人工创建或曾编辑的空分类按人工分类保护。类目、规则、账目与心愿在同一事务恢复，冲突时整批回滚。全新空库中未使用、未修改的默认类目可按备份恢复名称与样式；现有用户修改受保护。旧版备份不覆盖当前类目的图标和颜色。
+导出为 `schemaVersion: 7`，包含二级标签、标签规则、账单的手动标签和固定支出排除标记，订阅（只含原始字段；较早的第 7 版备份没有这一项，或缺少到期日与导入来源），以及月度预算、心愿单（含排队顺序 `position`）、转账方向、类目图标、颜色与版本、固定支出标记、分类来源及用户分类规则（包括内置规则的用户覆盖）。代码内的默认规则不重复写入备份。恢复同时接受版本 1–7，旧备份不修改现有心愿单与预算；预算在当前未设置时写入，金额相同视为已有，不同则整批冲突；版本 1 缺失的固定标记按 `false` 处理，旧非空分类、人工创建或曾编辑的空分类按人工分类保护。类目、规则、账目与心愿在同一事务恢复，冲突时整批回滚。全新空库中未使用、未修改的默认类目可按备份恢复名称与样式；现有用户修改受保护。旧版备份不覆盖当前类目的图标和颜色。
 
 单次请求正文上限为 8 MB。完整数据库备份与恢复见 [本地运行与维护](OPERATIONS.md)。
 

@@ -1,3 +1,5 @@
+import type { SubscriptionRecord } from './subscriptions';
+export type * from './subscriptions';
 export const TRANSACTION_KINDS = ['expense', 'income', 'refund', 'transfer'] as const;
 export type TransactionKind = typeof TRANSACTION_KINDS[number];
 export type TransferDirection = 'inflow' | 'outflow';
@@ -210,6 +212,8 @@ export interface MailSyncStatus {
   lastError: string | null;
   recordCount: number;
   skippedExistingCount: number;
+  issueCount: number;
+  dismissedIssueCount: number;
   syncing: boolean;
   progress?: MailSyncProgress | null;
   issues: MailSyncIssue[];
@@ -240,8 +244,13 @@ export interface CurrentBackup {
   categoryRules: CategoryRule[]; wishlistItems: WishlistItem[]; budget: { amountCents: number } | null;
   /** 二级标签；较早的第 7 版备份可能缺少标签配置，恢复时保留目标库的默认标签 */
   tags?: Tag[]; tagRules?: TagRule[]; transactionTags?: ({ transactionId: string } & TagOverride)[];
+  /** 订阅；较早的第 7 版备份没有这一项 */
+  subscriptions?: SubscriptionRecord[];
 }
-export interface BackupRestoreResult { inserted: number; skipped: number; wishlistInserted: number; wishlistSkipped: number; budgetRestored: boolean }
+export interface BackupRestoreResult {
+  inserted: number; skipped: number; wishlistInserted: number; wishlistSkipped: number;
+  subscriptionsInserted: number; subscriptionsSkipped: number; budgetRestored: boolean;
+}
 type LegacyTransactionWithCategory = Omit<Transaction, 'transferDirection'>;
 type LegacyTransaction = Omit<Transaction, 'transferDirection' | 'categorySource' | 'categoryRuleId' | 'categoryRuleKeyword'>;
 export interface LegacyBackupV6 extends Omit<CurrentBackup, 'schemaVersion' | 'budget'> {

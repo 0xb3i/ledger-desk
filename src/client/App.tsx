@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { Bootstrap, CategoryRuleInput, MailSyncStatus, Transaction, WishlistItem } from '../shared/contracts';
+import type { Bootstrap, MonthlyBudget, Summary, CategoryRuleInput, MailSyncStatus, Transaction, WishlistItem } from '../shared/contracts';
+import { currentMonth } from '@/lib/format';
 import { api, errorMessage, useResource } from '@/lib/api';
 import { AppContext, PAGES, locationUrl, readLocation, type AppContextValue, type Filters, type Location, type PagePath } from '@/lib/app';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -16,6 +17,7 @@ import { RuleEditor } from '@/components/rule-manager';
 const VIEWS = {
   '/overview': lazy(() => import('@/pages/overview')),
   '/transactions': lazy(() => import('@/pages/transactions')),
+  '/subscriptions': lazy(() => import('@/pages/subscriptions')),
   '/wishlist': lazy(() => import('@/pages/wishlist')),
   '/categories': lazy(() => import('@/pages/categories')),
   '/settings': lazy(() => import('@/pages/settings')),
@@ -60,6 +62,10 @@ function Workspace() {
   const bootstrap = useResource<Bootstrap>('/bootstrap', revision, { keepOnRefresh: true });
   const sync = useResource<MailSyncStatus>('/integrations/mail/status', syncRevision + revision, { keepOnRefresh: true });
 
+  const month = currentMonth();
+  const currentSummary = useResource<Summary>(`/summary?month=${month}`, revision, { keepOnRefresh: true });
+  const budget = useResource<MonthlyBudget>('/budget', revision, { keepOnRefresh: true });
+
   const isSyncing = Boolean(sync.data?.syncing);
   useEffect(() => {
     const onPop = () => setLocation(readLocation());
@@ -92,7 +98,7 @@ function Workspace() {
     : <PageLoading label="正在读取账本" />;
 
   const value: AppContextValue = {
-    location, navigate, bootstrap: bootstrap.data, revision, refresh,
+    location, navigate, bootstrap: bootstrap.data, revision, refresh, currentSummary, currentSummaryMonth: month, budget,
     sync: { data: sync.data, loading: sync.loading, error: sync.error },
     openTransaction: item => setTransaction({ item }),
     openWish: item => setWish({ item }),

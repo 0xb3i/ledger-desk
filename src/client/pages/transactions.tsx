@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Download, Plus, ReceiptText, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Plus, ReceiptText, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { KIND_LABELS, type Summary, type Transaction, type TransactionKind, type TransactionPage } from '../../shared/contracts';
+import { KIND_LABELS, type Transaction, type TransactionKind, type TransactionPage } from '../../shared/contracts';
 import { api, errorMessage, useResource } from '@/lib/api';
-import { useApp, type Filters } from '@/lib/app';
+import { spendFilters, useApp, useMonthlySummary, type Filters } from '@/lib/app';
 import { CategoryDot, categoryColor, tagOf } from '@/lib/category';
 import { centsToDecimal, dateInShanghai, money, transactionKindLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -36,38 +36,40 @@ export default function Transactions() {
   };
   const update = (patch: Filters) => setFilters({ ...filters, ...patch, page: '1' });
   const [exporting, setExporting] = useState(false);
-  const uncategorized = filters.categoryId === 'uncategorized';
+  const categoryId = filters.spendCategory || filters.categoryId;
+  const uncategorized = categoryId === 'uncategorized';
   const { status, ...queryFilters } = filters;
   const reviewStatus = status === 'pending' ? 'pending' : uncategorized && filters.deleted !== 'true' ? 'confirmed' : undefined;
   const scope = { month, ...queryFilters, ...(reviewStatus ? { status: reviewStatus } : {}) };
   const query = new URLSearchParams({ ...scope, pageSize: String(PAGE_SIZE) });
   const result = useResource<TransactionPage>(`/transactions?${query}`, revision, { keepOnRefresh: true });
-  const summary = useResource<Summary>(`/summary?month=${month}`, revision, { keepOnRefresh: true });
+  const summary = useMonthlySummary(month);
   const deleted = useResource<TransactionPage>(`/transactions?month=${month}&deleted=true&pageSize=1`, revision, { keepOnRefresh: true });
   const data = result.data;
   const page = data?.page ?? Math.max(1, Number(filters.page) || 1), total = data?.total ?? 0, pageSize = data?.pageSize ?? PAGE_SIZE;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const sort = SORTS.some(([v]) => v === filters.sort) ? filters.sort : 'newest';
   const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate();
-  const hasFilters = Boolean(filters.search || filters.kind || filters.status === 'pending' || filters.deleted === 'true' || filters.categoryId || filters.tagId || filters.date);
+  const hasFilters = Boolean(filters.search || filters.kind || filters.status === 'pending' || filters.deleted === 'true' || categoryId || filters.tagId || filters.date);
   const kinds: TransactionKind[] = ['expense', 'income'];
   for (const kind of ['refund', 'transfer'] as const) if (filters.kind === kind || summary.data?.[`${kind}Cents`] || data?.items.some(i => i.kind === kind)) kinds.push(kind);
   // 按所选收支类型过滤可选类目，避免“收入 + 餐饮”这类无意义组合
   const categoryMatchesKind = (catKind: string, txKind?: string) =>
     !txKind || txKind === 'transfer' || catKind === 'both' || (txKind === 'income' ? catKind === 'income' : catKind === 'expense');
   const availableCategories = bootstrap.categories.filter(c => categoryMatchesKind(c.kind, filters.kind));
-  const categoryTags = filters.categoryId ? (bootstrap.tags ?? []).filter(t => t.categoryId === filters.categoryId) : [];
-  const stateFilter = filters.deleted === 'true' ? 'deleted' : filters.status === 'pending' ? 'pending' : ALL;
+  const categoryTags = categoryId ? (bootstrap.tags ?? []).filter(t => t.categoryId === categoryId) : [];
+  const stateFilter = filters.spendCategory ? 'actual' : filters.deleted === 'true' ? 'deleted' : filters.status === 'pending' ? 'pending' : ALL;
   const pickKind = (v: string) => {
     const nextKind = v === ALL ? '' : v;
-    const currentCat = filters.categoryId && !uncategorized ? bootstrap.categories.find(c => c.id === filters.categoryId) : null;
+    const currentCat = categoryId && !uncategorized ? bootstrap.categories.find(c => c.id === categoryId) : null;
     const keepCat = !currentCat || categoryMatchesKind(currentCat.kind, nextKind);
-    update({ kind: nextKind, ...(keepCat ? {} : { categoryId: '', tagId: '' }) });
+    update({ kind: nextKind, spendCategory: '', categoryId: keepCat && categoryId !== 'transfer' ? categoryId ?? '' : '',
+      ...(!keepCat || categoryId === 'transfer' ? { tagId: '' } : {}) });
   };
   const pickState = (v: string) => {
-    if (v === 'pending') update({ status: 'pending', deleted: '' });
-    else if (v === 'deleted') update({ status: '', deleted: 'true' });
-    else update({ status: '', deleted: '' });
+    if (v === 'actual') return;
+    update({ status: v === 'pending' ? 'pending' : '', deleted: v === 'deleted' ? 'true' : '',
+      spendCategory: '', categoryId: categoryId === 'transfer' ? '' : categoryId ?? '' });
   };
 
   // 删除导致当前页为空时，回到最后一页
@@ -126,12 +128,14 @@ export default function Transactions() {
             {kinds.map(k => <TabsTrigger key={k} value={k} className="px-3 text-xs">{k === 'transfer' ? '转账' : KIND_LABELS[k]}</TabsTrigger>)}
           </TabsList>
         </Tabs>
-        <Select value={filters.categoryId || ALL} onValueChange={v => update({ categoryId: v === ALL ? '' : v, tagId: '' })}>
-          <SelectTrigger size="sm" className={cn('min-w-28', filters.categoryId && 'border-foreground/25 bg-accent/50')}>
+        <Select value={categoryId || ALL} onValueChange={v => update(filters.spendCategory && v !== ALL
+          ? { ...spendFilters(v), categoryId: '', tagId: '' } : { spendCategory: '', categoryId: v === ALL ? '' : v, tagId: '' })}>
+          <SelectTrigger size="sm" className={cn('min-w-28', categoryId && 'border-foreground/25 bg-accent/50')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>全部分类</SelectItem>
+            {filters.spendCategory && <SelectItem value="transfer">转出（未分类）</SelectItem>}
             <SelectItem value="uncategorized">
               <span className="flex w-full items-center gap-2">
                 <span>未分类</span>
@@ -164,6 +168,7 @@ export default function Transactions() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>全部状态</SelectItem>
+            {filters.spendCategory && <SelectItem value="actual">已计入实际支出</SelectItem>}
             <SelectItem value="pending">
               <span className="flex w-full items-center gap-2">
                 <span>待核对</span>
@@ -236,10 +241,10 @@ export default function Transactions() {
           <CardContent><MiniDailyChart days={summary.data.daily} selected={filters.date ?? ''} onPick={date => update({ date: filters.date === date ? '' : date })} /></CardContent>
         </Card>}
         {data?.breakdown && data.breakdown.length > 0 && (
-          <BreakdownCard items={data.breakdown} scoped={Boolean(filters.categoryId)}
-            onPick={item => update(item.categoryId === 'transfer' ? { kind: 'transfer', categoryId: '', tagId: '' }
-              : !filters.categoryId ? { categoryId: item.categoryId ?? 'uncategorized', tagId: '' }
-              : { categoryId: item.categoryId ?? 'uncategorized', tagId: item.tagId ?? ((bootstrap.tags ?? []).some(t => t.categoryId === item.categoryId) ? 'none' : '') })} />
+          <BreakdownCard items={data.breakdown} scoped={Boolean(categoryId)}
+            onPick={item => update({ tagId: '', ...spendFilters(item.categoryId ?? 'uncategorized',
+              categoryId ? item.tagId ?? (bootstrap.tags.some(t => t.categoryId === item.categoryId) ? 'none' : '') : ''),
+              categoryId: '', status: '', deleted: '' })} />
         )}
         </div>
       </div>

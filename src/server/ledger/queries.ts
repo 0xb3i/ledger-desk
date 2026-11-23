@@ -15,7 +15,7 @@ const pageSchema = z.object({
   kind: z.enum(TRANSACTION_KINDS).optional(),
   status: z.enum(['confirmed', 'pending']).optional(),
   deleted: z.enum(['true', 'false']).optional().default('false'),
-  categoryId: textId.optional(), accountId: textId.optional(), tagId: textId.optional(),
+  categoryId: textId.optional(), spendCategory: textId.optional(), accountId: textId.optional(), tagId: textId.optional(),
   page: z.string().regex(/^[1-9]\d{0,4}$/).transform(Number).optional().default(1),
   pageSize: z.string().regex(/^[1-9]\d{0,2}$/).transform(Number).pipe(z.number().max(100)).optional().default(30),
   sort: z.enum(['newest', 'oldest', 'largest', 'smallest']).optional().default('newest'),
@@ -48,6 +48,12 @@ export async function listTransactions(db: D1Database, query: Record<string, str
   if (options.accountId) { conditions.push('account_id = ?'); bindings.push(options.accountId); }
   if (options.categoryId === 'uncategorized') conditions.push(options.kind === 'transfer' || options.kind === 'refund' ? 'category_id IS NULL' : "category_id IS NULL AND kind IN ('expense','income')");
   else if (options.categoryId) { conditions.push('category_id = ?'); bindings.push(options.categoryId); }
+  if (options.spendCategory) {
+    conditions.push(confirmed, "(kind='expense' OR (kind='transfer' AND transfer_direction='outflow'))");
+    if (options.spendCategory === 'transfer') conditions.push("kind='transfer' AND category_id IS NULL");
+    else if (options.spendCategory === 'uncategorized') conditions.push("kind='expense' AND category_id IS NULL");
+    else { conditions.push('category_id = ?'); bindings.push(options.spendCategory); }
+  }
   if (options.search) {
     const pattern = `%${options.search.replace(/[\\%_]/g, '\\$&')}%`;
     conditions.push("(description LIKE ? ESCAPE '\\' OR counterparty LIKE ? ESCAPE '\\' OR note LIKE ? ESCAPE '\\')");
@@ -63,6 +69,7 @@ export async function listTransactions(db: D1Database, query: Record<string, str
   ]);
   const adjustments = matchRefunds(results[0].results as unknown as RefundMatchRow[]);
   let rows = results[1].results as unknown as TransactionRow[];
+  if (options.spendCategory) rows = rows.filter(row => effectiveExpenseCents(row, adjustments) > 0);
   const overrides = await loadTagOverrides(db);
   if (options.tagId) {
     // 二级标签由规则实时推导，无法下推到 SQL；分类筛选已在 SQL 里缩小范围，这里再按同一个匹配器过滤。

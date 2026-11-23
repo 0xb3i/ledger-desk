@@ -55,7 +55,8 @@ function MailSyncCard() {
   const { sync, refresh } = useApp();
   const [busy, setBusy] = useState(false);
   const [dismissingKey, setDismissingKey] = useState('');
-  const [dismissAllOpen, setDismissAllOpen] = useState(false);
+  const [dismissBatch, setDismissBatch] = useState<Pick<MailSyncStatus, 'email' | 'accountId' | 'issues'> | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const [dismissAllBusy, setDismissAllBusy] = useState(false);
   const [activeIssue, setActiveIssue] = useState<MailSyncIssue | null>(null);
   const [error, setError] = useState('');
@@ -84,13 +85,25 @@ function MailSyncCard() {
   }
 
   async function dismissAllIssues() {
+    if (!dismissBatch || dismissAllBusy) return;
     setDismissAllBusy(true); setError('');
     try {
-      await api<MailSyncStatus>('/integrations/mail/issues/dismiss-all', { method: 'POST', body: {} });
-      setDismissAllOpen(false);
+      await api<MailSyncStatus>('/integrations/mail/issues/dismiss-all', { method: 'POST', body: { email: dismissBatch.email, accountId: dismissBatch.accountId,
+        issues: dismissBatch.issues.map(({ uidValidity, uid }) => ({ uidValidity, uid })) } });
+      setDismissBatch(null);
       refresh();
-      toast.success('已忽略全部待处理邮件提醒。');
+      toast.success('已忽略本次选中的邮件。');
     } catch (cause) { setError(errorMessage(cause)); } finally { setDismissAllBusy(false); }
+  }
+
+  async function restoreDismissed() {
+    if (!status?.email || restoring) return;
+    setRestoring(true); setError('');
+    try {
+      await api<MailSyncStatus>('/integrations/mail/issues/restore-dismissed', { method: 'POST', body: { email: status.email, accountId: status.accountId } });
+      refresh();
+      toast.success('已恢复到待核对邮件。');
+    } catch (cause) { setError(errorMessage(cause)); } finally { setRestoring(false); }
   }
 
   const syncing = busy || status?.syncing;
@@ -129,7 +142,12 @@ function MailSyncCard() {
           </div>
 
           {!status.configured ? (
-            <InlineMailSetup status={status} onConnected={() => { refresh(); toast.success('QQ 邮箱已连接并完成首次同步。'); }} />
+            <InlineMailSetup status={status} onConnected={result => {
+              refresh();
+              if (result.lastError) setError(result.lastError);
+              else if (result.syncing) toast.info('QQ 邮箱已连接，正在同步账单。');
+              else toast.success('QQ 邮箱已连接并完成首次同步。');
+            }} />
           ) : (
             <dl className="grid grid-cols-2 gap-3 rounded-lg bg-[#fafafb] p-3 text-sm sm:grid-cols-3">
               <div><dt className="text-xs text-muted-foreground">已导入账单</dt><dd className="tabular-nums">{status.recordCount} 笔</dd></div>
@@ -147,9 +165,10 @@ function MailSyncCard() {
         {Boolean(status.issues?.length) && <section aria-label="待处理邮件">
           <div className="flex items-center gap-2 border-y bg-[#fafafb] px-6 py-2 text-xs text-muted-foreground">
             <span>待核对邮件</span>
-            <Badge variant="secondary" className="bg-brand-soft text-brand tabular-nums">{status.issues.length} 封</Badge>
+            <Badge variant="secondary" className="bg-brand-soft text-brand tabular-nums">{status.issueCount} 封</Badge>
+            {status.issueCount > status.issues.length && <span>当前显示 {status.issues.length} 封</span>}
             <span className="hidden text-muted-foreground/80 sm:inline">核对一封后，其余同类邮件会自动入账</span>
-            {status.issues.length > 1 && <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs text-muted-foreground" disabled={Boolean(syncing || dismissAllBusy)} onClick={() => setDismissAllOpen(true)}>全部忽略</Button>}
+            {status.issues.length > 1 && <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs text-muted-foreground" disabled={Boolean(syncing || dismissAllBusy)} onClick={() => { setError(''); setDismissBatch(status); }}>忽略本页</Button>}
           </div>
           <ItemGroup className="[&>*]:border-b [&>*]:border-b-border">
             {status.issues.map(issue => {
@@ -178,21 +197,27 @@ function MailSyncCard() {
             })}
           </ItemGroup>
         </section>}
+        {status.dismissedIssueCount > 0 && <CardContent className="py-3">
+          <Button variant="outline" size="sm" onClick={restoreDismissed} disabled={Boolean(restoring || syncing)}>
+            {restoring && <Spinner />}恢复已忽略的 {status.dismissedIssueCount} 封邮件
+          </Button>
+        </CardContent>}
       </>}
       {status && configOpen && <MailConfigDialog status={status} onClose={() => setConfigOpen(false)} onUpdated={() => { setConfigOpen(false); refresh(); }} />}
       {status && backfillOpen && <BackfillDialog status={status} onClose={() => setBackfillOpen(false)} onCompleted={() => { setBackfillOpen(false); refresh(); }} />}
       {status && activeIssue && <MailIssueDialog key={`${activeIssue.uidValidity}:${activeIssue.uid}`} issue={activeIssue} accountId={status.accountId}
         onClose={() => setActiveIssue(null)}
         onResolved={message => { setActiveIssue(null); refresh(); toast.success(message); }} />}
-      <Dialog open={dismissAllOpen} onOpenChange={open => !open && !dismissAllBusy && setDismissAllOpen(false)}>
+      <Dialog open={Boolean(dismissBatch)} onOpenChange={open => !open && !dismissAllBusy && setDismissBatch(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>忽略全部待处理邮件？</DialogTitle>
-            <DialogDescription>将忽略当前 {status?.issues.length ?? 0} 封未能自动解析的邮件提醒，不会删除 QQ 邮箱原邮件；以后仍可通过「按日期补扫」重新检查。</DialogDescription>
+            <DialogTitle>忽略本页待核对邮件？</DialogTitle>
+            <DialogDescription>将忽略本页的 {dismissBatch?.issues.length ?? 0} 封邮件，之后可恢复到待核对列表。</DialogDescription>
           </DialogHeader>
+          <ErrorState message={error} />
           <DialogFooter>
-            <Button variant="outline" disabled={dismissAllBusy} onClick={() => setDismissAllOpen(false)}>取消</Button>
-            <Button disabled={dismissAllBusy} onClick={dismissAllIssues}>{dismissAllBusy && <Spinner />}全部忽略</Button>
+            <Button variant="outline" disabled={dismissAllBusy} onClick={() => setDismissBatch(null)}>取消</Button>
+            <Button disabled={dismissAllBusy} onClick={dismissAllIssues}>{dismissAllBusy && <Spinner />}确认忽略</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -356,7 +381,7 @@ function MailIssueDialog({ issue, accountId, onClose, onResolved }: {
   );
 }
 
-function InlineMailSetup({ status, onConnected }: { status: MailSyncStatus; onConnected: () => void }) {
+function InlineMailSetup({ status, onConnected }: { status: MailSyncStatus; onConnected: (status: MailSyncStatus) => void }) {
   const [email, setEmail] = useState('');
   const [authCode, setAuthCode] = useState('');
   const [syncStartDate, setSyncStartDate] = useState(status.suggestedStartDate);
@@ -371,12 +396,12 @@ function InlineMailSetup({ status, onConnected }: { status: MailSyncStatus; onCo
     event.preventDefault();
     setBusy(true); setError('');
     try {
-      await api<MailSyncStatus>('/integrations/mail/config', {
+      const result = await api<MailSyncStatus>('/integrations/mail/config', {
         method: 'POST',
         body: { email: email.trim(), authCode: authCode.trim(), syncStartDate },
       });
       setAuthCode('');
-      onConnected();
+      onConnected(result);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -507,7 +532,8 @@ function BackfillDialog({ status, onClose, onCompleted }: { status: MailSyncStat
       const result = await syncNow({ startDate, endDate });
       if (result.lastError) setError(result.lastError);
       else {
-        toast.success(`已完成 ${startDate} 至 ${endDate} 的招行邮件补扫。`);
+        if (result.syncing) toast.info(`正在补扫 ${startDate} 至 ${endDate} 的招行邮件。`);
+        else toast.success(`已完成 ${startDate} 至 ${endDate} 的招行邮件补扫。`);
         onCompleted();
       }
     } catch (cause) { setError(errorMessage(cause)); } finally { setBusy(false); }
@@ -580,14 +606,15 @@ function BackupCard() {
     try {
       const r = await api<BackupRestoreResult>('/backup/restore', { method: 'POST', body: restore });
       setRestore(null); refresh();
-      const added = [r.inserted && `${r.inserted} 笔账目`, r.wishlistInserted && `${r.wishlistInserted} 项心愿`, r.budgetRestored && '月度预算'].filter(Boolean);
-      const kept = [r.skipped && `${r.skipped} 笔账目`, r.wishlistSkipped && `${r.wishlistSkipped} 项心愿`].filter(Boolean);
+      const added = [r.inserted && `${r.inserted} 笔账目`, r.wishlistInserted && `${r.wishlistInserted} 项心愿`, r.subscriptionsInserted && `${r.subscriptionsInserted} 项订阅`, r.budgetRestored && '月度预算'].filter(Boolean);
+      const kept = [r.skipped && `${r.skipped} 笔账目`, r.wishlistSkipped && `${r.wishlistSkipped} 项心愿`, r.subscriptionsSkipped && `${r.subscriptionsSkipped} 项订阅`].filter(Boolean);
       toast.success(`恢复完成${added.length ? `，新增 ${added.join('、')}` : ''}${kept.length ? `，保留已有的 ${kept.join('、')}` : ''}。`);
     } catch (cause) { setError(errorMessage(cause)); } finally { setBusy(''); }
   }
   const counts = restore ? [
     restore.transactions.length && `${restore.transactions.length} 笔账目`,
     'wishlistItems' in restore && restore.wishlistItems.length && `${restore.wishlistItems.length} 项心愿`,
+    'subscriptions' in restore && restore.subscriptions?.length && `${restore.subscriptions.length} 项订阅`,
     'budget' in restore && restore.budget && `月度预算 ¥${money(restore.budget.amountCents)}`,
   ].filter(Boolean) : [];
   return (
@@ -596,7 +623,7 @@ function BackupCard() {
       {error && !restore && <div className="px-6 pt-4"><ErrorState message={error} /></div>}
       <ItemGroup className="[&>*+*]:border-t [&>*+*]:border-t-border">
         <Item className="rounded-none px-6">
-          <ItemContent><ItemTitle>导出备份</ItemTitle><ItemDescription>包含全部账单、分类、规则、预算与心愿单（不含邮箱授权码）。</ItemDescription></ItemContent>
+          <ItemContent><ItemTitle>导出备份</ItemTitle><ItemDescription>包含全部账单、分类、规则、预算、心愿单与订阅（不含邮箱授权码）。</ItemDescription></ItemContent>
           <ItemActions><Button size="sm" disabled={Boolean(busy)} onClick={download}>{busy === 'export' ? <Spinner /> : <ArrowDownToLine />}导出备份</Button></ItemActions>
         </Item>
         <Item className="rounded-none px-6">

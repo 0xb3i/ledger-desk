@@ -438,9 +438,81 @@ describe('QQ 邮箱本地只读同步', () => {
     expect(await db.prepare('SELECT body_preview FROM local_mail_messages WHERE uid=40').first('body_preview')).toBeNull();
 
     // Dismiss all remaining issues
-    const dismissAllRes = await mail.routes.request('/mail/issues/dismiss-all', { method: 'POST', body: '{}' }, { DB: db, OWNER_ACCESS_KEY: 'test' });
+    const dismissAllRes = await mail.routes.request('/mail/issues/dismiss-all', { method: 'POST', body: JSON.stringify({email: 'user@qq.com', accountId: 'cmb-default', issues: [{uidValidity: 12, uid: 41}]}) }, { DB: db, OWNER_ACCESS_KEY: 'test' });
     expect(dismissAllRes.status).toBe(200);
     const afterAll = (await dismissAllRes.json() as { data: { issues: unknown[] } }).data;
     expect(afterAll.issues).toHaveLength(0);
+  });
+});
+
+describe('邮箱来源、完整正文与待核对恢复', () => {
+  const accountId = 'cmb-default';
+  const firstEmail = 'first@qq.com';
+  const secondEmail = 'second@qq.com';
+  const purchase = '您账户1234于11月20日09:30在商户快捷支付38.00元，余额1000.00。';
+  const unknown = '您账户1234于10月29日17:00自定义代扣88.50元，余额1200.00。';
+
+  async function service(messages: (email: string) => FetchedMessage[]) {
+    return createMailIntegration({
+      db, dataDir: directory, secretStore: createMemorySecretStore(),
+      transport: {
+        async testConnection() { return { uidValidity: 1, uidNext: 100 }; },
+        async pullMessages({ email }) {
+          return { mailbox: { uidValidity: 1, uidNext: 100 }, scannedMaxUid: 99, messages: messages(email) };
+        },
+      },
+    });
+  }
+  type Integration = Awaited<ReturnType<typeof service>>;
+  function post(mail: Integration, path: string, body: unknown) {
+    return mail.routes.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      { DB: db, OWNER_ACCESS_KEY: 'test' });
+  }
+  async function configure(mail: Integration, email = firstEmail) {
+    expect((await post(mail, '/mail/config', { email, accountId, authCode: 'abcdefghijklmnop', syncStartDate: '2026-10-01' })).status).toBe(200);
+  }
+
+  it('首扫、自动重试、学习模板和范围补扫都保留含多笔交易的邮件', async () => {
+    const ambiguous = unknown + '\n' + '附'.repeat(1250) + '\n' + purchase;
+    const mail = await service(() => [makeMessage(1, unknown), makeMessage(2, ambiguous), makeMessage(3, unknown + '\n' + purchase),
+      makeMessage(4, purchase + '\n' + '附'.repeat(1250) + '\n' + purchase), makeMessage(5, unknown.replace('88.50', '49.50'))]);
+    await configure(mail);
+    expect(await mail.status()).toMatchObject({ issueCount: 5, recordCount: 0 });
+    const recorded = await post(mail, '/mail/issues/1/1/record', { occurredAt: '2026-10-29T17:00:00+08:00', kind: 'expense', amount: '88.50', description: '自定义代扣' });
+    expect(await recorded.json()).toMatchObject({ data: { autoResolvedCount: 1, status: { issueCount: 3, recordCount: 2 } } });
+    expect(await mail.sync({ startDate: '2026-10-01', endDate: '2026-11-21' })).toMatchObject({ issueCount: 3, recordCount: 2 });
+    expect(await db.prepare('SELECT COUNT(*) FROM transactions').first('COUNT(*)')).toBe(2);
+  });
+
+  it('两个邮箱下相同的 UID 单独记账，升级前已关联或来源缺失的回执保持可核对', async () => {
+    const mail = await service(email => [makeMessage(3, email === firstEmail ? purchase : purchase.replace('38.00', '19.00'))]);
+    await configure(mail);
+    await db.prepare("UPDATE transactions SET idempotency_key='imap:1:3' WHERE idempotency_scope='mail:cmb-default'").run();
+    await configure(mail, secondEmail);
+    expect(await mail.status()).toMatchObject({ issueCount: 0, recordCount: 1 });
+    expect((await db.prepare('SELECT amount_cents FROM transactions ORDER BY amount_cents').all()).results).toEqual([{ amount_cents: 1900 }, { amount_cents: 3800 }]);
+    await db.prepare('DELETE FROM local_mail_messages').run();
+    await mail.sync({ startDate: '2026-10-01', endDate: '2026-11-21' });
+    expect(await mail.status()).toMatchObject({ issueCount: 0, recordCount: 1 });
+    await configure(mail, firstEmail);
+    expect(await mail.status()).toMatchObject({ issueCount: 1, recordCount: 0, issues: [{ message: expect.stringContaining('旧版账单回执') }] });
+    expect(await db.prepare('SELECT COUNT(*) FROM transactions').first('COUNT(*)')).toBe(2);
+  });
+
+  it('批量操作绑定当前显示的 UID，恢复时保留摘要并排除自动过滤的邮件', async () => {
+    const mail = await service(() => [...Array.from({ length: 51 }, (_, i) => makeMessage(i + 1, unknown)), makeMessage(80, '推广活动')]);
+    await configure(mail);
+    const status = await mail.status();
+    expect(status.issueCount).toBe(51);
+    expect(status.issues).toHaveLength(50);
+    const source = { email: firstEmail, accountId };
+    const issues = status.issues.map(({ uidValidity, uid }) => ({ uidValidity, uid }));
+    expect(await (await post(mail, '/mail/issues/dismiss-all', { ...source, issues })).json())
+      .toMatchObject({ data: { issueCount: 1, dismissedIssueCount: 50 } });
+    expect(await (await post(mail, '/mail/issues/restore-dismissed', source)).json())
+      .toMatchObject({ data: { issueCount: 51, dismissedIssueCount: 0 } });
+    const restored = await mail.routes.request('/mail/issues/1/51', {}, { DB: db, OWNER_ACCESS_KEY: 'test' });
+    expect(await restored.json()).toMatchObject({ data: { body: unknown, draft: { amount: '88.50' } } });
+    expect(await db.prepare('SELECT status FROM local_mail_messages WHERE uid=80').first('status')).toBe('ignored');
   });
 });

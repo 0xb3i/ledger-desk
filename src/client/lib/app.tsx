@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { Bootstrap, CategoryRuleInput, MailSyncStatus, Transaction, WishlistItem } from '../../shared/contracts';
+import { useResource } from './api';
+import type { Bootstrap, MonthlyBudget, Summary, CategoryRuleInput, MailSyncStatus, Transaction, WishlistItem } from '../../shared/contracts';
 import { currentMonth } from './format';
 
 /* 路由：地址栏即状态（路径 + 月份 + 筛选），刷新和前进后退都能还原 */
@@ -7,12 +8,17 @@ export type Filters = Record<string, string>;
 export const PAGES = [
   { path: '/overview', label: '总览', title: '收支总览' },
   { path: '/transactions', label: '账单', title: '收支明细' },
+  { path: '/subscriptions', label: '订阅', title: '订阅' },
   { path: '/wishlist', label: '心愿单', title: '心愿单' },
   { path: '/categories', label: '分类与规则', title: '分类与规则' },
   { path: '/settings', label: '同步与备份', title: '同步与备份' },
 ] as const;
 export type PagePath = typeof PAGES[number]['path'];
-const FILTER_KEYS = ['search', 'kind', 'status', 'page', 'deleted', 'categoryId', 'tagId', 'date', 'sort', 'tab'];
+const FILTER_KEYS = ['search', 'kind', 'status', 'page', 'deleted', 'categoryId', 'tagId', 'spendCategory', 'date', 'sort', 'tab'];
+export function spendFilters(categoryId: string, tagId = ''): Filters {
+  return { kind: 'expense', spendCategory: categoryId, ...(tagId ? { tagId } : {}) };
+}
+
 const MONTHLY: PagePath[] = ['/overview', '/transactions'];
 
 export type Location = { path: PagePath; month: string; filters: Filters };
@@ -37,6 +43,9 @@ export type AppContextValue = {
   navigate: (path: PagePath, filters?: Filters, month?: string, replace?: boolean) => void;
   bootstrap: Bootstrap;
   sync: SyncState;
+  currentSummaryMonth: string;
+  currentSummary: ReturnType<typeof useResource<Summary>>;
+  budget: ReturnType<typeof useResource<MonthlyBudget>>;
   revision: number;
   refresh: () => void;
   openTransaction: (transaction: Transaction | null) => void;
@@ -46,3 +55,10 @@ export type AppContextValue = {
 };
 export const AppContext = createContext<AppContextValue | null>(null);
 export const useApp = () => useContext(AppContext)!;
+
+export function useMonthlySummary(month: string) {
+  const { currentSummary, currentSummaryMonth, revision } = useApp();
+  const current = month === currentSummaryMonth;
+  const historical = useResource<Summary>(current ? null : `/summary?month=${month}`, revision, { keepOnRefresh: true });
+  return current ? currentSummary : historical;
+}

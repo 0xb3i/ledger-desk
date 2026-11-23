@@ -49,6 +49,9 @@ async function changedItem(db: D1Database, id: string, row: WishlistRow | null):
   throw new ApiError(409, 'WISHLIST_VERSION_CONFLICT', '这项心愿已发生变化，请刷新后重新操作。');
 }
 
+const queueOrder = 'position IS NULL,position ASC,created_at DESC,id DESC';
+const wantedQueue = "deleted_at IS NULL AND status='wanted'";
+
 export const wishlistRoutes = new Hono<ApiEnv>();
 wishlistRoutes.get('/wishlist', async c => {
   const { status, search, page } = z.object({
@@ -61,7 +64,7 @@ wishlistRoutes.get('/wishlist', async c => {
   const stateWhere = status === 'deleted' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL AND status=?';
   // 想买按手动排队顺序；已购、已移除按发生时间倒序
   const order = status === 'purchased' ? 'purchased_at DESC,id DESC' : status === 'deleted' ? 'deleted_at DESC,id DESC'
-    : 'position IS NULL,position ASC,created_at DESC,id DESC';
+    : queueOrder;
   const searchBindings = [search, search, search, search];
   const bindings = [...searchBindings, ...(status === 'deleted' ? [] : [status])];
   const [countsResult, summaryResult, itemsResult] = await c.env.DB.batch([
@@ -138,23 +141,30 @@ wishlistRoutes.post('/wishlist/:id/restore', async c => {
 wishlistRoutes.post('/wishlist/:id/position', async c => {
   const id = itemId.parse(c.req.param('id'));
   const { position } = z.object({ position: z.number().int().min(1).max(1_000_000) }).parse(await c.req.json());
-  const rows = (await c.env.DB.prepare(`SELECT id FROM wishlist_items WHERE deleted_at IS NULL AND status='wanted'
-    ORDER BY position IS NULL,position ASC,created_at DESC,id DESC`).all()).results as { id: string }[];
-  const ids = rows.map(row => row.id);
-  if (!ids.includes(id)) {
-    const exists = await c.env.DB.prepare('SELECT id FROM wishlist_items WHERE id=?').bind(id).first();
-    if (!exists) throw new ApiError(404, 'WISHLIST_NOT_FOUND', '这项心愿不存在。');
+  const db = c.env.DB;
+  const [item, , queue] = await db.batch([
+    db.prepare('SELECT status,deleted_at FROM wishlist_items WHERE id=?').bind(id),
+    db.prepare(`WITH ranked AS MATERIALIZED (
+        SELECT id, row_number() OVER (ORDER BY ${queueOrder}) AS rank FROM wishlist_items WHERE ${wantedQueue}
+      ), move AS (
+        SELECT rank AS oldRank, MIN(?, (SELECT COUNT(*) FROM ranked)) AS newRank FROM ranked WHERE id=?
+      ), positions AS (
+        SELECT ranked.id, CASE
+          WHEN rank=oldRank THEN newRank
+          WHEN rank BETWEEN newRank AND oldRank THEN rank+1
+          WHEN rank BETWEEN oldRank AND newRank THEN rank-1
+          ELSE rank END AS nextRank FROM ranked CROSS JOIN move
+      )
+      UPDATE wishlist_items SET position=(
+        SELECT COALESCE(MAX(position),0) FROM wishlist_items WHERE deleted_at IS NOT NULL OR status='purchased'
+      ) + positions.nextRank
+      FROM positions WHERE wishlist_items.id=positions.id`).bind(position, id),
+    db.prepare(`SELECT * FROM wishlist_items WHERE ${wantedQueue} ORDER BY ${queueOrder}`),
+  ]);
+  const target = item.results[0] as Pick<WishlistRow, 'status' | 'deleted_at'> | undefined;
+  if (!target) throw new ApiError(404, 'WISHLIST_NOT_FOUND', '这项心愿不存在。');
+  if (target.status !== 'wanted' || target.deleted_at !== null) {
     throw new ApiError(409, 'WISHLIST_NOT_QUEUED', '只有想买的心愿可以调整顺序，请刷新后重试。');
   }
-  const next = ids.filter(item => item !== id);
-  next.splice(Math.min(position, ids.length) - 1, 0, id);
-  // Purchased and removed items keep their slot numbers after the queue, so restoring them never collides.
-  const offset = await c.env.DB.prepare(`SELECT COALESCE(MAX(position),0) AS top FROM wishlist_items`).first<{ top: number }>();
-  const base = Number(offset?.top ?? 0) + 1;
-  await c.env.DB.batch([
-    ...next.map((item, index) => c.env.DB.prepare('UPDATE wishlist_items SET position=? WHERE id=?').bind(base + index, item)),
-  ]);
-  const data: WishlistItem[] = (await c.env.DB.prepare(`SELECT * FROM wishlist_items WHERE id IN (${next.map(() => '?').join(',')})
-    ORDER BY position ASC`).bind(...next).all()).results.map(row => toWishlistItem(row as unknown as WishlistRow));
-  return c.json({ data });
+  return c.json({ data: (queue.results as unknown as WishlistRow[]).map(toWishlistItem) });
 });

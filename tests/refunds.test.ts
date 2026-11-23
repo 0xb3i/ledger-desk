@@ -118,6 +118,14 @@ describe('退款关联与支出统计投影', () => {
     expect(matchRefunds(await rows()).size).toBe(0);
   });
 
+  it.each([['100', '110'], ['110', '100']])('两笔支出 %s / %s 争用同一拆单退款时保持未匹配', async (first, second) => {
+    await create('拆单商户', first);
+    await create('拆单商户', second, 'expense', { occurredAt: '2026-11-01T14:00:00+08:00' });
+    for (const amount of ['60', '40', '50']) await create('拆单商户', amount, 'refund');
+    expect(matchRefunds(await rows()).size).toBe(0);
+    expect(await getSummary(db, '2026-11', now)).toMatchObject({ expenseCents: 21000, unmatchedRefundCents: 15000 });
+  });
+
   it('同商户多笔合单消费按子订单拆分退款时，通过唯一余额子集精确配对抵扣', async () => {
     const e1 = await create('支付宝-温州森生向上科技有限公司', '165.99', 'expense', { occurredAt: '2026-11-06T18:12:00+08:00' });
     await create('支付宝-温州森生向上科技有限公司', '125.59', 'refund', { occurredAt: '2026-11-06T18:14:00+08:00' });

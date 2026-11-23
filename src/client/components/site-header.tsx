@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, ChevronRight, CircleHelp, ClipboardCheck, RefreshCw, Search, TriangleAlert } from 'lucide-react';
+import { Bell, CalendarClock, CircleHelp, ClipboardCheck, RefreshCw, Search, TriangleAlert, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { MailSyncStatus, MonthlyBudget, Summary } from '../../shared/contracts';
-import { api, errorMessage, useResource } from '@/lib/api';
+import type { MailSyncStatus } from '../../shared/contracts';
+import { api, errorMessage } from '@/lib/api';
 import { useApp } from '@/lib/app';
-import { currentMonth, dateInShanghai, dateLabel, money, timeLabel } from '@/lib/format';
+import { useSubscriptionReminders } from '@/lib/subscription';
+import { dueLabel } from '../../shared/subscriptions';
+import { dateInShanghai, dateLabel, money, timeLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
@@ -37,11 +39,11 @@ export function SiteHeader({ title }: { title: string }) {
   );
 }
 
-/* 全局搜索：心愿单页搜心愿，分类页搜类目或关键词，其余页面搜账单；⌘K 聚焦 */
+/* 全局搜索：心愿单页搜心愿，分类页搜类目或关键词，订阅页搜订阅，其余页面搜账单；⌘K 聚焦 */
 function HeaderSearch() {
   const { location, navigate } = useApp();
-  const mode = location.path === '/wishlist' ? 'wishlist' : location.path === '/categories' ? 'categories' : 'transactions';
-  const placeholder = mode === 'wishlist' ? '搜索心愿' : mode === 'categories' ? '搜索类目或关键词' : '搜索账单';
+  const mode = location.path === '/wishlist' ? 'wishlist' : location.path === '/categories' ? 'categories' : location.path === '/subscriptions' ? 'subscriptions' : 'transactions';
+  const placeholder = mode === 'wishlist' ? '搜索心愿' : mode === 'categories' ? '搜索类目或关键词' : mode === 'subscriptions' ? '搜索订阅' : '搜索账单';
   const [value, setValue] = useState(location.filters.search ?? '');
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => setValue(location.filters.search ?? ''), [location.filters.search]);
@@ -57,6 +59,7 @@ function HeaderSearch() {
       event.preventDefault();
       if (mode === 'wishlist') navigate('/wishlist', { ...(location.filters.status ? { status: location.filters.status } : {}), search: value.trim() });
       else if (mode === 'categories') navigate('/categories', { search: value.trim() });
+      else if (mode === 'subscriptions') navigate('/subscriptions', { search: value.trim() });
       else navigate('/transactions', { search: value.trim() });
     }}>
       <InputGroup className="h-8 w-56 bg-card">
@@ -111,23 +114,40 @@ export function SyncStatus() {
 export const syncNow = (range?: { startDate: string; endDate: string }) =>
   api<MailSyncStatus>('/integrations/mail/sync', { method: 'POST', body: range ?? {} });
 
-/* 需要留意：汇总本月待核对、未分类、超预算与同步问题，点击直达处理位置 */
+/* 忽略的提醒：按「事项 + 当前状态」记在本机浏览器里。状态一变（笔数变了、进入新的月份、订阅换了一期或变成逾期）就会重新出现 */
+const DISMISSED_KEY = 'qingji.attention.dismissed';
+function useDismissed() {
+  const [keys, setKeys] = useState<string[]>(() => {
+    try { const value = JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]'); return Array.isArray(value) ? value.filter(k => typeof k === 'string') : []; } catch { return []; }
+  });
+  const save = (next: string[]) => { const kept = next.slice(-200); setKeys(kept); try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(kept)); } catch { /* 存不下就只在本次会话忽略 */ } };
+  return { has: (key: string) => keys.includes(key), add: (key: string) => save([...keys.filter(k => k !== key), key]), remove: (removed: string[]) => save(keys.filter(k => !removed.includes(k))) };
+}
+
+/* 需要留意：汇总本月待核对、未分类、超预算、订阅即将扣费与同步问题，点击直达处理位置；每条可以忽略 */
 function AttentionPopover() {
-  const { revision, sync, navigate } = useApp();
-  const month = currentMonth();
-  const summary = useResource<Summary>(`/summary?month=${month}`, revision, { keepOnRefresh: true });
-  const budget = useResource<MonthlyBudget>('/budget', revision, { keepOnRefresh: true });
+  const { currentSummary: summary, currentSummaryMonth: month, budget, sync, navigate } = useApp();
+  const reminders = useSubscriptionReminders().data?.items ?? [];
+  const dismissed = useDismissed();
   const [open, setOpen] = useState(false);
-  type Entry = { warn?: boolean; icon: typeof Bell; title: string; desc: string; go: () => void };
-  const items: Entry[] = [];
+  type Entry = { key: string; warn?: boolean; icon: typeof Bell; title: string; desc: string; go: () => void };
+  const all: Entry[] = [];
   const s = summary.data;
   const limit = budget.data?.amountCents;
-  if (s && limit && s.expenseCents > limit) items.push({ warn: true, icon: TriangleAlert, title: `本月已超出预算 ¥${money(s.expenseCents - limit)}`,
+  if (s && limit && s.expenseCents > limit) all.push({ key: `budget:${month}`, warn: true, icon: TriangleAlert, title: `本月已超出预算 ¥${money(s.expenseCents - limit)}`,
     desc: `已花 ¥${money(s.expenseCents)} · 月度预算 ¥${money(limit)}`, go: () => navigate('/overview', {}, month) });
-  if (s?.pendingCount) items.push({ icon: ClipboardCheck, title: `${s.pendingCount} 笔账单待核对`, desc: '确认后才计入收支', go: () => navigate('/transactions', { status: 'pending' }, month) });
-  if (s?.uncategorizedCount) items.push({ icon: CircleHelp, title: `${s.uncategorizedCount} 笔账单未分类`, desc: '选个分类，或添加自动分类规则', go: () => navigate('/transactions', { categoryId: 'uncategorized' }, month) });
-  if (sync.data?.issues?.length) items.push({ warn: true, icon: RefreshCw, title: `${sync.data.issues.length} 封招行邮件需要核对`, desc: '部分邮件暂未自动解析，前往同步页查看', go: () => navigate('/settings') });
-  else if (sync.data?.lastError) items.push({ warn: true, icon: RefreshCw, title: 'QQ 邮箱同步需要处理', desc: sync.data.lastError, go: () => navigate('/settings') });
+  // 订阅：只提醒手动付款的（快到付款日、逾期，或快到期且不再续费）；逾期或 3 天内的标橙；超过 4 项时合并成一条
+  for (const r of reminders.slice(0, reminders.length > 4 ? 3 : 4)) all.push({ key: `sub:${r.id}:${r.dueDate}:${r.state}`, warn: r.state === 'overdue' || r.daysLeft <= 3, icon: CalendarClock,
+    title: `${r.name} ${dueLabel(r)}${r.state === 'ending' ? '，不再续费' : ''}`,
+    desc: r.state === 'ending' ? `${dateLabel(r.dueDate)} 到期，之后不再续费` : `${dateLabel(r.dueDate)} · ¥${money(r.amountCents)}${r.isFinal ? ' · 最后一次' : ''}`, go: () => navigate('/subscriptions') });
+  if (reminders.length > 4) all.push({ key: `sub-more:${reminders.slice(3).map(r => `${r.id}:${r.dueDate}`).join(',')}`, icon: CalendarClock,
+    title: `另有 ${reminders.length - 3} 项订阅即将付款`, desc: '前往订阅查看', go: () => navigate('/subscriptions') });
+  if (s?.pendingCount) all.push({ key: `pending:${month}:${s.pendingCount}`, icon: ClipboardCheck, title: `${s.pendingCount} 笔账单待核对`, desc: '确认后才计入收支', go: () => navigate('/transactions', { status: 'pending' }, month) });
+  if (s?.uncategorizedCount) all.push({ key: `uncategorized:${month}:${s.uncategorizedCount}`, icon: CircleHelp, title: `${s.uncategorizedCount} 笔账单未分类`, desc: '选个分类，或添加自动分类规则', go: () => navigate('/transactions', { categoryId: 'uncategorized' }, month) });
+  if (sync.data?.issueCount) all.push({ key: `mail-issues:${sync.data.issueCount}`, warn: true, icon: RefreshCw, title: `${sync.data.issueCount} 封招行邮件需要核对`, desc: '部分邮件暂未自动解析，前往同步页查看', go: () => navigate('/settings') });
+  else if (sync.data?.lastError) all.push({ key: `mail-error:${sync.data.lastError}`, warn: true, icon: RefreshCw, title: 'QQ 邮箱同步需要处理', desc: sync.data.lastError, go: () => navigate('/settings') });
+  const items = all.filter(item => !dismissed.has(item.key));
+  const hidden = all.filter(item => dismissed.has(item.key));
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -139,19 +159,27 @@ function AttentionPopover() {
       <PopoverContent align="end" className="w-90 p-0">
         <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium">需要留意<Badge variant="secondary">{items.length}</Badge></div>
         {items.length ? <ItemGroup className="p-1">
-          {items.map((a, i) => (
-            <Item key={i} size="sm" asChild className="px-3">
-              <button className="text-left hover:bg-accent" onClick={() => { setOpen(false); a.go(); }}>
+          {items.map(a => (
+            <Item key={a.key} size="sm" className="gap-1 px-1 py-1 hover:bg-accent has-[button:focus-visible]:bg-accent">
+              <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left outline-none" onClick={() => { setOpen(false); a.go(); }}>
                 <ItemMedia variant="icon" className={cn(a.warn && 'border-brand/20 bg-brand-soft text-brand')}><a.icon /></ItemMedia>
                 <ItemContent className="min-w-0 gap-0.5">
                   <ItemTitle className={cn('block truncate', a.warn && 'text-brand')}>{a.title}</ItemTitle>
                   <ItemDescription className="truncate text-xs">{a.desc}</ItemDescription>
                 </ItemContent>
-                <ItemActions className="opacity-0 transition-opacity group-hover/item:opacity-100"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
               </button>
+              <ItemActions className="opacity-0 transition-opacity group-hover/item:opacity-100 has-[:focus-visible]:opacity-100">
+                <Button variant="ghost" size="icon-sm" className="size-7 text-muted-foreground hover:text-foreground" aria-label={`忽略「${a.title}」`} onClick={() => dismissed.add(a.key)}><X /></Button>
+              </ItemActions>
             </Item>
           ))}
-        </ItemGroup> : <p className="px-4 py-6 text-center text-sm text-muted-foreground">都处理好了，暂时没有要留意的事。</p>}
+        </ItemGroup> : <p className="px-4 py-6 text-center text-sm text-muted-foreground">当前没有新通知</p>}
+        {hidden.length > 0 && (
+          <div className="flex items-center border-t px-4 py-2 text-xs text-muted-foreground">
+            <span className="tabular-nums">已忽略 {hidden.length} 条</span>
+            <Button variant="ghost" size="sm" className="ml-auto h-7 text-xs" onClick={() => dismissed.remove(hidden.map(item => item.key))}>重新显示</Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

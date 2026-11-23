@@ -6,6 +6,7 @@ import { LocalDatabase } from '../src/local/database';
 import { applyMigrations } from '../src/local/migrations';
 import { hashPayload, normalizeInput } from '../src/server/ledger/domain';
 import { changeStatus, createTransaction, updateTransaction } from '../src/server/ledger/repository';
+import { spendFilters } from '../src/client/lib/app';
 import { getSummary, listTransactions } from '../src/server/ledger/queries';
 
 let db: LocalDatabase;
@@ -49,6 +50,28 @@ describe('完整筛选范围的账单聚合', () => {
     expect(pending.total).toBe(1); expect(Object.values(pending.summary).every(value => value === 0)).toBe(true); expect(pending.daily).toEqual([]);
     const deleted = await listTransactions(db, { ...query, deleted: 'true' });
     expect(deleted.total).toBe(1); expect(Object.values(deleted.summary).every(value => value === 0)).toBe(true); expect(deleted.daily).toEqual([]);
+  });
+
+  it('分类支出的下钻笔数和金额与总览一致，区分转出、待核对、收入及全额退款', async () => {
+    await db.prepare("UPDATE categories SET kind='both' WHERE id='shopping'").run();
+    const buy = await create('drill-buy', { categoryId: 'shopping', amount: '10', description: '部分退货商家' });
+    await create('drill-refund', { kind: 'refund', amount: '3', description: '部分退货商家退款' });
+    await create('drill-return', { categoryId: 'shopping', amount: '5', description: '全部退货商家' });
+    await create('drill-whole', { kind: 'refund', amount: '5', description: '全部退货商家退款' });
+    await create('drill-income', { kind: 'income', categoryId: 'shopping' });
+    await create('drill-pending', { categoryId: 'shopping' }, true);
+    const uncategorized = await create('drill-none');
+    const out = await create('drill-out', { kind: 'transfer', transferDirection: 'outflow' });
+    await create('drill-in', { kind: 'transfer', transferDirection: 'inflow' });
+    const month = '2026-11';
+    const { categories } = await getSummary(db, month, new Date('2026-11-03T12:00:00+08:00'));
+    for (const [bucket, id, cents] of [['shopping', buy.id, 700], ['transfer', out.id, 100], ['uncategorized', uncategorized.id, 100]] as const) {
+      const result = await listTransactions(db, { month, ...spendFilters(bucket) });
+      expect(result.items.map(item => item.id)).toEqual([id]);
+      expect(result.summary.expenseCents).toBe(cents);
+      expect(categories.find(category => (category.categoryId ?? 'uncategorized') === bucket))
+        .toMatchObject({ count: result.total, amountCents: cents });
+    }
   });
 
   it('四种排序按完整范围稳定排序，默认每页30，拒绝无效排序与页大小', async () => {
@@ -275,17 +298,46 @@ describe('收入分类与固定支出', () => {
     } finally { old.close(); }
   });
 
+  it('同额固定支出分别保留各自商户和分类，共用别名时跳过自动识别', async () => {
+    const common = { amount: '30', counterparty: '共同代扣平台', isFixed: true };
+    const video = await create('fixed-video', { ...common, description: '影音订阅甲', categoryId: 'leisure' });
+    const phone = await create('fixed-phone', { ...common, description: '手机套餐乙', categoryId: 'other' });
+    const ambiguous = await create('fixed-ambiguous', { description: '共同代扣平台', amount: '30' });
+    const recurring = await create('fixed-video-next', { description: '影音订阅甲', amount: '30' });
+    const items = (await listTransactions(db, {})).items;
+    expect(items.find(row => row.id === video.id)).toMatchObject({ description: '影音订阅甲', categoryId: 'leisure', version: 1 });
+    expect(items.find(row => row.id === phone.id)).toMatchObject({ description: '手机套餐乙', categoryId: 'other', version: 1 });
+    expect(ambiguous.isFixed).toBe(false);
+    expect(recurring).toMatchObject({ isFixed: true, description: '影音订阅甲', categoryId: 'leisure' });
+  });
+
+  it('编辑固定项仅向原商户信息、金额与分类一致的历史固定项同步', async () => {
+    const original = { description: '影音订阅甲', counterparty: '共同代扣平台', amount: '30', categoryId: 'leisure', isFixed: true };
+    const previous = await create('fixed-peer-last', { ...original, occurredAt: '2026-10-01T12:00:00+08:00' });
+    const current = await create('fixed-peer-this', original);
+    const unrelated = await create('fixed-peer-other', { ...original, description: '手机套餐乙' });
+    const separate = await create('fixed-peer-category', { ...original, categoryId: 'learning' });
+    const edit = normalizeInput({ ...base, ...original, description: '影音月费', categoryId: 'other', categoryOverride: true });
+    await expect(updateTransaction(db, current.id, edit, current.version + 1)).rejects.toMatchObject({ status: 409 });
+    expect((await listTransactions(db, {})).items.find(row => row.id === previous.id)?.version).toBe(1);
+    await updateTransaction(db, current.id, edit, current.version);
+    const items = (await listTransactions(db, {})).items;
+    expect(items.find(row => row.id === previous.id)).toMatchObject({ description: '影音月费', categoryId: 'other', version: 2 });
+    expect(items.find(row => row.id === unrelated.id)).toMatchObject({ description: '手机套餐乙', categoryId: 'leisure', version: 1 });
+    expect(items.find(row => row.id === separate.id)).toMatchObject({ description: '影音订阅甲', categoryId: 'learning', version: 1 });
+  });
+
   it('按曾用名/交易对方+相同金额跨月自动同步历史与新增固定支出', async () => {
     const octRent = await create('oct-rent', {
-      occurredAt: '2026-10-05T10:00:00+08:00',
+      occurredAt: '2026-10-12T10:00:00+08:00',
       kind: 'transfer',
       transferDirection: 'outflow',
-      amount: '2659.00',
+      amount: '3200.00',
       description: '财付通-微信支付-微信转账',
       counterparty: '财付通-微信支付-微信转账',
     });
     const octOtherTransfer = await create('oct-other-transfer', {
-      occurredAt: '2026-10-06T10:00:00+08:00',
+      occurredAt: '2026-10-13T10:00:00+08:00',
       kind: 'transfer',
       transferDirection: 'outflow',
       amount: '50.00',
@@ -293,10 +345,10 @@ describe('收入分类与固定支出', () => {
       counterparty: '财付通-微信支付-微信转账',
     });
     const novRent = await create('nov-rent', {
-      occurredAt: '2026-11-09T10:00:00+08:00',
+      occurredAt: '2026-11-12T10:00:00+08:00',
       kind: 'transfer',
       transferDirection: 'outflow',
-      amount: '2659.00',
+      amount: '3200.00',
       description: '财付通-微信支付-微信转账',
       counterparty: '财付通-微信支付-微信转账',
     });
@@ -306,7 +358,7 @@ describe('收入分类与固定支出', () => {
       ...base,
       occurredAt: novRent.occurredAt,
       kind: 'expense',
-      amount: '2659.00',
+      amount: '3200.00',
       description: '房租',
       counterparty: novRent.counterparty,
       categoryId: 'housing',
@@ -324,7 +376,7 @@ describe('收入分类与固定支出', () => {
       description: '房租',
       counterparty: '财付通-微信支付-微信转账',
       categoryId: 'housing',
-      amountCents: 265900,
+      amountCents: 320000,
     });
     const untouched = (await listTransactions(db, { month: '2026-10', kind: 'transfer' })).items;
     expect(untouched).toHaveLength(1);
@@ -332,10 +384,10 @@ describe('收入分类与固定支出', () => {
 
     // 12 月新同步进来的同金额原始名称账单直接自动识别为固定支出“房租”
     const decRent = await create('dec-rent', {
-      occurredAt: '2026-12-08T10:00:00+08:00',
+      occurredAt: '2026-12-12T10:00:00+08:00',
       kind: 'transfer',
       transferDirection: 'outflow',
-      amount: '2659.00',
+      amount: '3200.00',
       description: '财付通-微信支付-微信转账',
       counterparty: '财付通-微信支付-微信转账',
     });
@@ -345,12 +397,12 @@ describe('收入分类与固定支出', () => {
       description: '房租',
       counterparty: '财付通-微信支付-微信转账',
       categoryId: 'housing',
-      amountCents: 265900,
+      amountCents: 320000,
     });
     const restoredName = '这笔单独计入日均';
     const currentOctRent = (await listTransactions(db, { month: '2026-10', kind: 'expense' })).items.find(item => item.id === octRent.id)!;
     const cancelled = await updateTransaction(db, octRent.id, normalizeInput({ ...base,
-      occurredAt: octRent.occurredAt, amount: '2659.00', description: restoredName,
+      occurredAt: octRent.occurredAt, amount: '3200.00', description: restoredName,
       counterparty: currentOctRent.counterparty, categoryId: 'housing', isFixed: false,
     }), currentOctRent.version);
     await create('fixed-unrelated', { amount: '15.00', description: '其他商户' });

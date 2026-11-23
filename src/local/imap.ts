@@ -221,7 +221,6 @@ function parseFetchMeta(frame: ImapFrame): { uid: number; internalDate: Date | n
   const joined = frame.segments.join(' ');
   const uidMatch = /\bUID\s+(\d+)/i.exec(joined);
   if (!uidMatch) return null;
-  const sizeMatch = /RFC822\.SIZE\s+(\d+)/i.exec(joined);
   const dateMatch = /\bINTERNALDATE\s+"([^"]+)"/i.exec(joined);
   const parsedDate = dateMatch ? new Date(dateMatch[1]) : null;
   return {

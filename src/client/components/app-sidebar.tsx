@@ -1,4 +1,4 @@
-import { LayoutGrid, ReceiptText, Heart, Tags, RefreshCw } from 'lucide-react';
+import { LayoutGrid, ReceiptText, Heart, Tags, RefreshCw, CalendarClock } from 'lucide-react';
 import { PAGES, useApp, type PagePath } from '@/lib/app';
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader,
@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/sidebar';
 
 const ICONS: Record<PagePath, typeof Heart> = {
-  '/overview': LayoutGrid, '/transactions': ReceiptText, '/wishlist': Heart, '/categories': Tags, '/settings': RefreshCw,
+  '/overview': LayoutGrid, '/transactions': ReceiptText, '/subscriptions': CalendarClock, '/wishlist': Heart, '/categories': Tags, '/settings': RefreshCw,
 };
 const muted = '[&>svg]:text-muted-foreground data-[active=true]:font-medium data-[active=true]:[&>svg]:text-foreground';
 
@@ -51,7 +51,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>{(['/overview', '/transactions', '/wishlist', '/categories'] as PagePath[]).map(item)}</SidebarMenu>
+            <SidebarMenu>{(['/overview', '/transactions', '/subscriptions', '/wishlist', '/categories'] as PagePath[]).map(item)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

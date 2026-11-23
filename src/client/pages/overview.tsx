@@ -3,8 +3,8 @@ import { toast } from 'sonner';
 import { CalendarDays, ChevronRight, Pencil, Plus, ReceiptText, Settings2, TrendingDown, TrendingUp, X } from 'lucide-react';
 import type { MonthlyBudget, Summary, Transaction, TransactionPage } from '../../shared/contracts';
 import { api, errorMessage, RequestError, useResource } from '@/lib/api';
-import { useApp } from '@/lib/app';
-import { centsToDecimal, currentMonth, dateInShanghai, dateLabel, money } from '@/lib/format';
+import { spendFilters, useApp, useMonthlySummary } from '@/lib/app';
+import { centsToDecimal, dateInShanghai, dateLabel, money } from '@/lib/format';
 import { CategoryTile, TagTile, categoryColor } from '@/lib/category';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -42,10 +42,9 @@ function Amount({ cents, signed, primary }: { cents: number; signed?: boolean; p
 }
 
 export default function Overview() {
-  const { location, navigate, revision, bootstrap, openTransaction } = useApp();
-  const month = location.month, now = currentMonth(), isCurrent = month === now;
-  const summary = useResource<Summary>(`/summary?month=${month}`, revision, { keepOnRefresh: true });
-  const budgetRes = useResource<MonthlyBudget>('/budget', revision, { keepOnRefresh: true });
+  const { location, navigate, revision, bootstrap, openTransaction, currentSummaryMonth: now, budget: budgetRes } = useApp();
+  const month = location.month, isCurrent = month === now;
+  const summary = useMonthlySummary(month);
   const [mode, setMode] = useState('day');
   const [recentKind, setRecentKind] = useState('all');
   const recentQuery = new URLSearchParams({ month, page: '1', pageSize: '4', ...(recentKind !== 'all' ? { kind: recentKind } : {}) });
@@ -171,7 +170,7 @@ export default function Overview() {
     </Card>
 
     <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <CategorySpendCard summary={s} onPick={(categoryId, tagId) => go(categoryId === 'transfer' ? { kind: 'transfer' } : { categoryId, ...(tagId ? { tagId } : {}) })} onOpen={openTransaction} />
+      <CategorySpendCard summary={s} onPick={(categoryId, tagId) => go(spendFilters(categoryId, tagId))} onOpen={openTransaction} />
       <Card className="flex flex-col gap-0 overflow-hidden py-0">
         <CardHeader className="border-b py-4 [.border-b]:pb-4">
           <CardTitle>最近账单</CardTitle>

@@ -9,9 +9,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 const toDate = (value: string) => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); };
 const toValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-/* 日期选择：值为 YYYY-MM-DD；可限定范围，可清除 */
-export function DatePicker({ value, onChange, placeholder = '选择日期', min, max, clearable, className, id, disabled }: {
-  value: string; onChange: (value: string) => void; placeholder?: string; min?: string; max?: string;
+/* 日期选择：值为 YYYY-MM-DD；可限定范围，可清除；未选时面板停在 defaultMonth 所在月，否则是本月 */
+export function DatePicker({ value, onChange, placeholder = '选择日期', min, max, defaultMonth, clearable, className, id, disabled }: {
+  value: string; onChange: (value: string) => void; placeholder?: string; min?: string; max?: string; defaultMonth?: string;
   clearable?: boolean; className?: string; id?: string; disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -27,7 +27,7 @@ export function DatePicker({ value, onChange, placeholder = '选择日期', min,
         {clearable && value && <Button variant="ghost" size="icon-xs" className="absolute top-1/2 right-1.5 size-6 -translate-y-1/2 rounded-full text-muted-foreground hover:text-foreground" aria-label="清除日期" onClick={() => onChange('')}><X /></Button>}
       </div>
       <PopoverContent className="w-auto p-0" align="start">
-        <Calendar mode="single" locale={zhCN} selected={selected} defaultMonth={selected ?? (min ? toDate(min) : undefined)}
+        <Calendar mode="single" locale={zhCN} selected={selected} defaultMonth={selected ?? (defaultMonth ? toDate(defaultMonth) : min ? toDate(min) : undefined)}
           disabled={[...(min ? [{ before: toDate(min) }] : []), ...(max ? [{ after: toDate(max) }] : [])]}
           onSelect={date => { if (date) { onChange(toValue(date)); setOpen(false); } }} />
       </PopoverContent>

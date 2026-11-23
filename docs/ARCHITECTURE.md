@@ -14,12 +14,13 @@ Vite SSR 将服务及运行依赖打包为 `dist-local/server.mjs`，仅 Node �
 
 | 模块 | 职责 |
 | --- | --- |
-| `src/client` | 总览、账单、心愿单、分类与规则、同步与备份界面；`components/ui` 为 shadcn 官方组件源码，按需在源码中定制 |
+| `src/client` | 总览、账单、订阅、心愿单、分类与规则、同步与备份界面；`components/ui` 为 shadcn 官方组件源码，按需在源码中定制 |
 | `src/shared/contracts.ts` | 前后端公共协议和备份结构 |
 | `src/server` | 公共 API、认证、错误处理和数据管理 |
 | `src/server/ledger` | 金额与时间校验、招行解析、幂等、核对和统计 |
 | `src/server/budgets.ts` | 月度总预算的读取与带版本修改，纳入备份；不按类目拆分 |
 | `src/server/wishlist.ts` | 心愿单持久化、价格校验、幂等创建、版本检查、已购与移除恢复；不生成账目 |
+| `src/server/subscriptions.ts`、`src/shared/subscriptions.ts` | 订阅持久化、周期与到期推算、提醒窗口、本期已付、结束与恢复；不生成账目 |
 | `src/local/server.ts` | 本机网络边界、启动入口、静态资源和进程生命周期 |
 | `src/local/database.ts` | 用本地 SQLite 实现项目实际使用的数据库查询与事务契约 |
 | `src/local/migrations.ts` | 追加迁移、已应用迁移哈希校验 |
@@ -54,6 +55,6 @@ Vite SSR 将服务及运行依赖打包为 `dist-local/server.mjs`，仅 Node �
 
 ## 备份与历史云端
 
-应用备份包含账户、分类、账目、账目幂等回执、分类规则、二级标签及手动指定、月度预算和心愿单，不包含会话密钥、设备令牌、心愿创建请求哈希及完整审计。完整恢复需要在服务停止后保管整个本地数据目录。恢复策略见 [本地运行与维护](OPERATIONS.md)。
+应用备份包含账户、分类、账目、账目幂等回执、分类规则、二级标签及手动指定、月度预算、心愿单和订阅，不包含会话密钥、设备令牌、心愿创建请求哈希及完整审计。完整恢复需要在服务停止后保管整个本地数据目录。恢复策略见 [本地运行与维护](OPERATIONS.md)。
 
 历史 Cloudflare 应用及 D1 保持原部署，供旧账目保管；本地应用不把它作为中转或备用数据源，不自动与旧云端合并数据。
