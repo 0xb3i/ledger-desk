@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-23T08:00:00+08:00",
+  "title": "Design System: 轻记",
+  "extensions": {
+    "colorMeta": {
+      "ember-period": { "role": "primary", "displayName": "句点橙 Ember Period", "canonical": "#e56332", "tonalRamp": ["#3d1a0c", "#6b2c14", "#9c3f1d", "#c95127", "#e56332", "#ee8a63", "#f6b99f", "#fff2ea"] },
+      "ember-muted": { "role": "primary", "displayName": "柔橙 Ember Muted", "canonical": "#e6845a" },
+      "ember-wash": { "role": "primary", "displayName": "橙雾 Ember Wash", "canonical": "#fff2ea" },
+      "ledger-green": { "role": "secondary", "displayName": "账本绿 Ledger Green", "canonical": "#4d8061", "tonalRamp": ["#16261c", "#24402f", "#335a42", "#41724f", "#4d8061", "#74a084", "#a9c7b4", "#e4efe8"] },
+      "brick-red": { "role": "tertiary", "displayName": "砖红 Brick Red", "canonical": "#c84b31", "tonalRamp": ["#3a140c", "#621f13", "#8c2c1c", "#b03b26", "#c84b31", "#d97a65", "#eab0a3", "#f8e3de"] },
+      "graphite": { "role": "neutral", "displayName": "石墨 Graphite", "canonical": "#26272a", "tonalRamp": ["#151617", "#232426", "#26272a", "#4a4b50", "#71727a", "#a3a4ab", "#d6d7dc", "#f6f6f7"] },
+      "ink": { "role": "neutral", "displayName": "墨色 Ink", "canonical": "#232426" },
+      "ink-muted": { "role": "neutral", "displayName": "灰墨 Ink Muted", "canonical": "#71727a" },
+      "paper-canvas": { "role": "neutral", "displayName": "纸面画布 Paper Canvas", "canonical": "#f6f6f7" },
+      "paper-white": { "role": "neutral", "displayName": "纸白 Paper White", "canonical": "#ffffff" },
+      "hairline": { "role": "neutral", "displayName": "发丝线 Hairline", "canonical": "#eaeaee" },
+      "hairline-inner": { "role": "neutral", "displayName": "内发丝线 Inner Hairline", "canonical": "#f1f1f4" },
+      "footer-tint": { "role": "neutral", "displayName": "页脚浅灰 Footer Tint", "canonical": "#fafafb" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "总览页问候语或月份标题，只出现在首屏。" },
+      "headline": { "displayName": "Headline", "purpose": "二级页面标题（PageHeader）。" },
+      "amount": { "displayName": "Amount", "purpose": "关键金额；¥ 与小数部分降为 400 字重灰墨并缩小一档。" },
+      "title": { "displayName": "Title", "purpose": "卡片标题与列表分区标题。" },
+      "body": { "displayName": "Body", "purpose": "列表行标题、表单与正文。" },
+      "label": { "displayName": "Label", "purpose": "列头、副信息、脚注与日期。" }
+    },
+    "shadows": [
+      { "name": "paper-rest", "value": "0 1px 2px rgba(35,36,38,0.02)", "purpose": "所有卡片的静止态，让白卡落在灰底上。" },
+      { "name": "control", "value": "0 1px 2px 0 rgba(0,0,0,0.05)", "purpose": "描边按钮与输入框的轻压痕。" },
+      { "name": "overlay", "value": "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)", "purpose": "Dialog、Sheet、Popover、Dropdown 等脱离文档流的浮层。" },
+      { "name": "focus", "value": "0 0 0 3px rgba(180,181,189,0.5)", "purpose": "所有可交互控件的键盘焦点环。" }
+    ],
+    "motion": [
+      { "name": "page-enter", "value": "fade-in + translateY(8px→0) 300ms ease-out", "purpose": "切换页面时内容区一次性淡入上移。" },
+      { "name": "state", "value": "150ms ease (transition-colors / opacity)", "purpose": "悬停底色、行内操作显隐、勾选圆圈变色。" },
+      { "name": "overlay", "value": "fade + zoom-95 200ms", "purpose": "对话框与弹出层进出。" }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "页面头部唯一主操作：石墨底白字，带左侧图标。",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg>记一笔</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 8px 16px 8px 12px; border: none; border-radius: 10px; background: var(--primary, #26272a); color: var(--primary-foreground, #fff); font: 400 14px/1 Inter, 'PingFang SC', sans-serif; cursor: pointer; transition: background 150ms ease, box-shadow 150ms ease; } .ds-btn-primary:hover { background: color-mix(in srgb, var(--primary, #26272a) 90%, transparent); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(180,181,189,0.5); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "需要被看见的次要操作：纸白底、发丝线、轻压痕。",
+      "html": "<button class=\"ds-btn-outline\">设置月度预算</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 8px 16px; border: 1px solid var(--border, #eaeaee); border-radius: 10px; background: var(--card, #fff); color: var(--foreground, #232426); font: 400 14px/1 Inter, 'PingFang SC', sans-serif; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); cursor: pointer; transition: background 150ms ease; } .ds-btn-outline:hover { background: var(--accent, #efeff1); } .ds-btn-outline:focus-visible { outline: none; border-color: var(--ring, #b4b5bd); box-shadow: 0 0 0 3px rgba(180,181,189,0.5); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "卡片页脚与工具栏的轻操作：透明底，悬停洗灰。",
+      "html": "<button class=\"ds-btn-ghost\">查看全部<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 6px 10px 6px 12px; border: none; border-radius: 10px; background: transparent; color: var(--foreground, #232426); font: 400 14px/1 Inter, 'PingFang SC', sans-serif; cursor: pointer; transition: background 150ms ease; } .ds-btn-ghost:hover { background: var(--accent, #efeff1); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(180,181,189,0.5); }"
+    },
+    {
+      "name": "Amount Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "带 ¥ 前缀的金额输入，数字等宽。",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">每期金额</span><span class=\"ds-input-group\"><span class=\"ds-input-prefix\">¥</span><input class=\"ds-input\" inputmode=\"decimal\" value=\"3,200.00\"></span></label>",
+      "css": ".ds-field { display: grid; gap: 8px; width: 240px; font-family: Inter, 'PingFang SC', sans-serif; } .ds-field-label { font-size: 14px; font-weight: 500; color: var(--foreground, #232426); } .ds-input-group { display: flex; align-items: center; height: 36px; border: 1px solid var(--input, #e2e2e7); border-radius: 10px; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-input-group:focus-within { border-color: var(--ring, #b4b5bd); box-shadow: 0 0 0 3px rgba(180,181,189,0.5); } .ds-input-prefix { padding-left: 12px; font-size: 14px; color: var(--muted-foreground, #71727a); } .ds-input { flex: 1; min-width: 0; height: 100%; padding: 4px 12px 4px 8px; border: none; background: transparent; outline: none; font: 400 14px Inter, 'PingFang SC', sans-serif; font-variant-numeric: tabular-nums; color: var(--foreground, #232426); }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "侧栏导航：激活项浅灰底、文字与图标转墨色加 500 字重。",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg>总览</a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z\"/><path d=\"M16 8h-6\"/><path d=\"M16 12H8\"/></svg>账单</a></nav>",
+      "css": ".ds-nav { display: grid; gap: 4px; width: 216px; padding: 8px; background: var(--sidebar, #fdfdfd); font-family: Inter, 'PingFang SC', sans-serif; } .ds-nav-item { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 10px; color: var(--sidebar-foreground, #232426); font-size: 14px; text-decoration: none; transition: background 150ms ease; } .ds-nav-item svg { color: var(--muted-foreground, #71727a); } .ds-nav-item:hover { background: var(--sidebar-accent, #efeff0); } .ds-nav-item.is-active { background: var(--sidebar-accent, #efeff0); font-weight: 500; } .ds-nav-item.is-active svg { color: var(--foreground, #232426); } .ds-nav-item:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--sidebar-ring, #b4b5bd); }"
+    },
+    {
+      "name": "Badges",
+      "kind": "chip",
+      "refersTo": "badge-count",
+      "description": "标题后的计数徽章与铃铛上的句点橙提醒角标。",
+      "html": "<span class=\"ds-title\">想买<span class=\"ds-badge\">12</span></span><span class=\"ds-bell\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/></svg><span class=\"ds-alert\">3</span></span>",
+      "css": ".ds-title { display: inline-flex; align-items: center; gap: 8px; margin-right: 24px; font: 500 16px/1 Inter, 'PingFang SC', sans-serif; color: var(--foreground, #232426); } .ds-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; background: var(--secondary, #f2f2f4); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; } .ds-bell { position: relative; display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: var(--foreground, #232426); transition: background 150ms ease; } .ds-bell:hover { background: var(--accent, #efeff1); } .ds-alert { position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 9999px; background: var(--brand, #e56332); color: #fff; font: 400 10px/14px Inter, sans-serif; text-align: center; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "List Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "清单卡片：标题行兼作列头，行内金额右对齐，悬停洗灰。",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><span>想买 <span class=\"ds-count\">2</span></span><span class=\"ds-col\">价格</span></div><div class=\"ds-row\"><span class=\"ds-check\"></span><span class=\"ds-row-main\"><span class=\"ds-row-title\">降噪耳机</span><span class=\"ds-row-sub\">试戴后再决定</span></span><span class=\"ds-row-amount\">¥899.90</span></div><div class=\"ds-row\"><span class=\"ds-check\"></span><span class=\"ds-row-main\"><span class=\"ds-row-title\">机械键盘</span><span class=\"ds-row-sub\">等双十一</span></span><span class=\"ds-row-amount\">¥629</span></div></div>",
+      "css": ".ds-card { width: 420px; overflow: hidden; border: 1px solid var(--border, #eaeaee); border-radius: 16px; background: var(--card, #fff); box-shadow: 0 1px 2px rgba(35,36,38,0.02); font-family: Inter, 'PingFang SC', sans-serif; color: var(--foreground, #232426); } .ds-card-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #f1f1f4; font-size: 16px; font-weight: 500; } .ds-count { margin-left: 6px; padding: 2px 8px; border-radius: 9999px; background: var(--secondary, #f2f2f4); font-size: 12px; font-weight: 400; } .ds-col { font-size: 12px; font-weight: 400; color: var(--muted-foreground, #71727a); } .ds-row { display: flex; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer; transition: background 150ms ease; } .ds-row + .ds-row { border-top: 1px solid #f1f1f4; } .ds-row:hover { background: color-mix(in srgb, var(--accent, #efeff1) 40%, transparent); } .ds-check { width: 20px; height: 20px; flex: none; border: 1px solid color-mix(in srgb, var(--muted-foreground, #71727a) 45%, transparent); border-radius: 9999px; transition: border-color 150ms ease, background 150ms ease; } .ds-row:hover .ds-check { border-color: var(--success, #4d8061); background: color-mix(in srgb, var(--success, #4d8061) 15%, transparent); } .ds-row-main { display: grid; gap: 2px; flex: 1; min-width: 0; } .ds-row-title { font-size: 14px; } .ds-row-sub { font-size: 12px; color: var(--muted-foreground, #71727a); } .ds-row-amount { font-size: 14px; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--foreground, #232426) 85%, transparent); }"
+    },
+    {
+      "name": "Attention Item",
+      "kind": "custom",
+      "refersTo": "attention-tile",
+      "description": "右上角铃铛弹层里的一条提醒；警示项用橙雾图标底和句点橙标题。",
+      "html": "<div class=\"ds-pop\"><div class=\"ds-pop-head\">需要留意 <span class=\"ds-count\">2</span></div><button class=\"ds-attn is-warn\"><span class=\"ds-attn-icon\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/></svg></span><span class=\"ds-attn-body\"><span class=\"ds-attn-title\">房租 3 天后到期</span><span class=\"ds-attn-desc\">11 月 26 日 · ¥3,200</span></span></button><button class=\"ds-attn\"><span class=\"ds-attn-icon\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><rect x=\"8\" y=\"2\" width=\"8\" height=\"4\" rx=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/><path d=\"m9 14 2 2 4-4\"/></svg></span><span class=\"ds-attn-body\"><span class=\"ds-attn-title\">4 笔账单待核对</span><span class=\"ds-attn-desc\">确认后才计入收支</span></span></button></div>",
+      "css": ".ds-pop { width: 360px; border: 1px solid var(--border, #eaeaee); border-radius: 12px; background: var(--popover, #fff); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1); font-family: Inter, 'PingFang SC', sans-serif; color: var(--foreground, #232426); } .ds-pop-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border, #eaeaee); font-size: 14px; font-weight: 500; } .ds-count { padding: 2px 8px; border-radius: 9999px; background: var(--secondary, #f2f2f4); font-size: 12px; font-weight: 400; } .ds-attn { display: flex; width: calc(100% - 8px); margin: 4px; align-items: flex-start; gap: 10px; padding: 12px; border: none; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; transition: background 150ms ease; } .ds-attn:hover { background: var(--accent, #efeff1); } .ds-attn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(180,181,189,0.5); } .ds-attn-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border: 1px solid color-mix(in srgb, var(--border, #eaeaee) 60%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--muted, #f0f0f2) 50%, transparent); color: var(--muted-foreground, #71727a); } .ds-attn.is-warn .ds-attn-icon { border-color: color-mix(in srgb, var(--brand, #e56332) 20%, transparent); background: var(--brand-soft, #fff2ea); color: var(--brand, #e56332); } .ds-attn-body { display: grid; gap: 2px; min-width: 0; } .ds-attn-title { font-size: 14px; color: var(--foreground, #232426); } .ds-attn.is-warn .ds-attn-title { color: var(--brand, #e56332); } .ds-attn-desc { font-size: 12px; color: var(--muted-foreground, #71727a); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Metric Amount",
+      "kind": "custom",
+      "refersTo": "amount",
+      "description": "指标卡：标签、整数优先的金额（¥ 与小数降灰）、只回答比较结论的脚注。",
+      "html": "<div class=\"ds-metric\"><span class=\"ds-metric-label\">支出</span><span class=\"ds-amount\"><span class=\"ds-amount-unit\">¥</span>6,988<span class=\"ds-amount-unit\">.67</span></span><span class=\"ds-metric-foot\"><span class=\"ds-trend\">↑ 26.8%</span>比上月同期多 ¥1,478.57</span></div>",
+      "css": ".ds-metric { display: grid; gap: 6px; font-family: Inter, 'PingFang SC', sans-serif; color: var(--foreground, #232426); } .ds-metric-label { font-size: 14px; color: var(--muted-foreground, #71727a); } .ds-amount { font-size: 36px; font-weight: 500; line-height: 1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; } .ds-amount-unit { margin: 0 1px; font-size: 20px; font-weight: 400; color: var(--muted-foreground, #71727a); } .ds-metric-foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground, #71727a); font-variant-numeric: tabular-nums; } .ds-trend { padding: 2px 8px; border-radius: 9999px; background: var(--brand-soft, #fff2ea); color: var(--foreground, #232426); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "安静的账页",
+    "overview": "轻记像摊在桌面上的一页干净账本：中性偏冷的纸面画布（paper-canvas）上浮着纯白卡片，卡片之间只靠一像素发丝线和留白分层，数字统一等宽对齐。品牌的全部个性压缩在一个符号里，就是「轻记.」右下角那颗暖橙句点。橙色在页面上出现得像句点一样少，只用来标出结论、提醒和越界。\n\n气质是 克制、轻盈、可信。克制体现在几乎没有阴影、没有渐变、没有装饰插画，图标线宽统一调细到 1.5，标题只用 500 字重。轻盈来自充足的行高、行内 14px 的上下留白，以及低饱和的灰阶层次。可信来自数字：金额全部用 tabular-nums，人民币符号和小数部分降一档灰色，让整数先被读到，读的人能一眼对齐、核对。\n\n这是一个 Operate 型桌面工具：只有本人在 Mac 上使用，所以信息密度可以略高于移动端，但每一屏只回答一个问题。技术状态（同步、解析异常）平时收进右上角，需要处理时才浮上来。",
+    "keyCharacteristics": [
+      "中性冷灰纸面 + 纯白浮卡，靠发丝线和色阶分层，几乎不用阴影。",
+      "单一暖橙点色（Ember Period），只承担「需要你判断」的语义。",
+      "金额等宽对齐，¥ 符号与小数降灰，整数优先。",
+      "细线图标（lucide，stroke 1.5），统一灰色，不按类目上色。",
+      "列表行悬停才显露次要操作，静止时界面保持安静。"
+    ],
+    "rules": [
+      { "name": "The Period Rule", "body": "句点橙只表达「需要留意」：提醒、越界、待处理。单屏出现的橙色面积不超过 5%，主按钮永远不用橙色。", "section": "colors" },
+      { "name": "The Two Reds Rule", "body": "橙色表示提醒，砖红表示破坏。提醒不能用砖红，删除不能用橙色。", "section": "colors" },
+      { "name": "The Grey Icons Rule", "body": "图标一律用灰墨。类目颜色只出现在需要区分类目的色点和占比色块里，不给图标上色。", "section": "colors" },
+      { "name": "The No-Bold Rule", "body": "界面文字不超过 500 字重。层级只靠字号、灰度和留白，不靠加粗。", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "所有金额、计数、日期、百分比都加 tabular-nums，列内数字右对齐。", "section": "typography" },
+      { "name": "The Header-Is-Column Rule", "body": "清单卡片不单独放表头。卡片标题行同时承担列头，列名对齐到下方数据列。", "section": "layout" },
+      { "name": "The Flat-By-Default Rule", "body": "卡片在任何状态下都不加大阴影。悬停反馈用洗灰底色，拖放反馈用 2px 橙色描边环。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 让金额整数先被读到：¥ 和小数部分降为灰墨并缩小一档，全部加 tabular-nums。",
+      "Do 用句点橙（#e56332）且只用它表达「需要你判断」：提醒、超支、待核对、即将到期。",
+      "Do 在清单卡片里用标题行兼作列头，lg 以下隐藏次要列。",
+      "Do 把次要操作收进行尾的「⋯」菜单，悬停才显现。",
+      "Do 每个状态都提供空状态（EmptyState：灰色图标方块 + 一句说明 + 一个主操作）、加载状态（Spinner + 「正在读取…」）和错误状态（Alert + 重试）。",
+      "Do 新页面复用 PageHeader（24px 标题 + 一行说明 + 右侧唯一主按钮）。"
+    ],
+    "donts": [
+      "Don't 把句点橙用在主按钮、大面积背景或装饰上。",
+      "Don't 用砖红表达提醒，也不要用橙色表达删除。",
+      "Don't 给卡片加大阴影、渐变、玻璃拟态，也不要在卡片里再嵌带圆角的卡片。",
+      "Don't 使用超过 500 的字重，也不要用大写字母、字距拉宽的标签。",
+      "Don't 给图标上类目色，类目色只用于色点和占比色块。",
+      "Don't 在界面上展示工程版本号或技术细节，技术状态只在需要处理时出现。"
+    ]
+  }
+}
