@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0xb3i/ledgerdesk/actions/workflows/ci.yml"><img src="https://github.com/0xb3i/ledgerdesk/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI 状态" /></a>
+  <a href="https://github.com/0xb3i/ledger-desk/actions/workflows/ci.yml"><img src="https://github.com/0xb3i/ledger-desk/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI 状态" /></a>
   <img src="https://img.shields.io/badge/Node.js-24%20%7C%2026%2B-262626?logo=nodedotjs&amp;logoColor=white" alt="Node.js 24 或 26+" />
   <img src="https://img.shields.io/badge/平台-macOS-E56332?logo=apple&amp;logoColor=white" alt="macOS" />
 </p>
