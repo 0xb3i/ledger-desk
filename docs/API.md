@@ -102,7 +102,7 @@
 
 以下接口均使用管理会话认证，写入校验 Origin。房租、会员、软件等周期扣费独立于账目，只做提醒与合计，不生成财务流水，避免与银行扣款重复。金额以整数分保存，输入为十进制文本；日期为上海时区的 `YYYY-MM-DD`。
 
-- `SubscriptionInput`：`{name, category:'housing'|'software'|'membership'|'utility'|'insurance'|'other', amount, cycle:'weekly'|'monthly'|'quarterly'|'semiannual'|'yearly', nextDueDate, endDate?:string|null, autoRenew, remindDays:0–60, note}`。
+- `SubscriptionInput`：`{name, category:'housing'|'software'|'membership'|'utility'|'insurance'|'other', amount, cycle:'weekly'|'monthly'|'quarterly'|'semiannual'|'yearly', nextDueDate, endDate?:string|null, autoRenew, remindDays:0–60, note, url?}`。`url` 为选填的续费或管理页面，只允许不含账号密码的 http(s) 地址。
 - `autoRenew` 是扣款方式：`true` 自动扣款，过了扣费日自动推到下一期，只在订阅页列出、不提醒；`false` 手动付款（如房租），到日子前在铃铛提醒，过了付款日保持逾期，直到标记已付款。`nextDueDate` 是下次扣费（付款）日，也是锚定日：按月的周期保留锚定日的几号，小月取月末，不会逐期漂移。
 - `endDate` 是到期日：服务用到这天为止，这天及以后不再扣费（例如房租交到 6 月 30 日就填 `2027-06-30`，6 月 30 日那期不扣）。没有下一次扣费、但还没到到期日时状态为 `ending`，仍在进行中，进入提醒窗口时铃铛提示即将到期；到了到期日状态为 `finished`，归入已到期，不再提醒、不计入合计。清空或延后到期日即恢复续费。
 - 返回的 `Subscription` 附带服务端按今天推算的 `dueDate`（下次扣费日；不再续费时为到期日）、`daysLeft`、`state`（`upcoming`／`soon`／`overdue`／`ending`／`finished`，`soon` 表示进入 `remindDays` 提醒窗口；旧版本手动结束的为 `ended`）、`isFinal`（到期前的最后一次扣费）和按月折算的 `monthlyCents`；`sourceKey` 非空表示从固定支出账单导入。

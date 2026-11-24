@@ -187,15 +187,13 @@ export default function Overview() {
             {s.uncategorizedCount > 0 && <button type="button" onClick={() => go({ categoryId: 'uncategorized' })} className="inline-flex items-center gap-0.5 text-foreground/80 hover:text-foreground hover:underline">{s.uncategorizedCount} 笔未分类<ChevronRight className="size-3.5" /></button>}
           </div>
         )}
-        <div className="min-h-72">
-          {recent.data?.items.length ? <ItemGroup className="[&>*+*]:border-t [&>*+*]:border-t-border">
-            {recent.data.items.map(t => <TransactionItem key={t.id} item={t} bootstrap={bootstrap} onOpen={openTransaction} showDate compact />)}
-          </ItemGroup> : recent.loading ? <PageLoading label="正在读取最近账单" /> : recent.error ? <div className="p-4"><ErrorState message={recent.error} /></div> : (
-            <EmptyState icon={ReceiptText} title={recentKind === 'all' ? '这里还没有账单' : '这里还没有符合条件的账单'}>
-              {recentKind === 'all' && <Button size="sm" onClick={() => openTransaction(null)}><Plus />记一笔</Button>}
-            </EmptyState>
-          )}
-        </div>
+        {recent.data?.items.length ? <ItemGroup className="[&>*+*]:border-t [&>*+*]:border-t-border">
+          {recent.data.items.map(t => <TransactionItem key={t.id} item={t} bootstrap={bootstrap} onOpen={openTransaction} showDate compact />)}
+        </ItemGroup> : recent.loading ? <PageLoading label="正在读取最近账单" /> : recent.error ? <div className="p-4"><ErrorState message={recent.error} /></div> : (
+          <EmptyState icon={ReceiptText} title={recentKind === 'all' ? '这里还没有账单' : '这里还没有符合条件的账单'}>
+            {recentKind === 'all' && <Button size="sm" onClick={() => openTransaction(null)}><Plus />记一笔</Button>}
+          </EmptyState>
+        )}
         <CardFooter className="mt-auto border-t !py-3 text-sm text-muted-foreground">
           {recent.data ? <span className="tabular-nums">共 {recent.data.total} 笔</span> : ''}
           <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={() => go(recentKind === 'all' ? {} : { kind: recentKind })}>查看全部<ChevronRight /></Button>

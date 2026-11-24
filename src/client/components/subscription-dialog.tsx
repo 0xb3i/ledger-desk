@@ -24,7 +24,7 @@ const remindLabel = (days: number) => days === 0 ? '当天' : `提前 ${days} �
 const values = (item: Subscription | null) => ({
   name: item?.name ?? '', category: item?.category ?? 'other' as SubscriptionCategory,
   amount: item ? centsToDecimal(item.amountCents).replace(/\.00$/, '') : '', cycle: item?.cycle ?? 'monthly' as SubscriptionCycle,
-  date: item?.dueDate ?? '', endDate: item?.endDate ?? '', autoRenew: item?.autoRenew ?? true, remindDays: String(item?.remindDays ?? 7), note: item?.note ?? '',
+  date: item?.dueDate ?? '', endDate: item?.endDate ?? '', autoRenew: item?.autoRenew ?? true, remindDays: String(item?.remindDays ?? 7), note: item?.note ?? '', url: item?.url ?? '',
 });
 
 /* 订阅：添加、编辑，用「到期日」表示不再续费；版本冲突时可读取最新版本 */
@@ -62,10 +62,11 @@ export function SubscriptionDialog({ item, onClose, onSaved }: { item: Subscript
     const amount = draft.amount.trim();
     if (!/^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) { setError('请输入大于 0 的金额，最多保留两位小数。'); return; }
     if (!draft.date) { setError('请选择下次扣费日。'); return; }
+    if (draft.url.trim() && !/^https?:\/\/\S+$/i.test(draft.url.trim())) { setError('链接需以 http:// 或 https:// 开头。'); return; }
     // 没改日期时保留原锚定日，避免按月推算时把 31 号悄悄改成 30 号
     const nextDueDate = current && draft.date === current.dueDate ? current.nextDueDate : draft.date;
     const input: SubscriptionInput = { name: draft.name.trim(), category: draft.category, amount, cycle: draft.cycle, nextDueDate,
-      endDate: draft.endDate || null, autoRenew: draft.autoRenew, remindDays: Number(draft.remindDays), note: draft.note.trim() };
+      endDate: draft.endDate || null, autoRenew: draft.autoRenew, remindDays: Number(draft.remindDays), note: draft.note.trim(), url: draft.url.trim() };
     void run(async () => {
       await api<Subscription>(current ? `/subscriptions/${current.id}` : '/subscriptions', {
         method: current ? 'PUT' : 'POST', body: { ...input, ...(current ? { version: current.version } : { id: createId.current }) },
@@ -99,6 +100,10 @@ export function SubscriptionDialog({ item, onClose, onSaved }: { item: Subscript
             <Field>
               <FieldLabel htmlFor="sub-name">名称</FieldLabel>
               <Input id="sub-name" autoFocus required maxLength={100} value={draft.name} onChange={e => set({ name: e.target.value })} placeholder="房租、iCloud+ 等" disabled={disabled} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="sub-url">链接</FieldLabel>
+              <Input id="sub-url" type="url" inputMode="url" maxLength={2000} value={draft.url} onChange={e => set({ url: e.target.value })} placeholder="选填，续费或管理页面" disabled={disabled} />
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field>

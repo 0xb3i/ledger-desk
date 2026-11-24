@@ -70,11 +70,13 @@ export interface SubscriptionInput {
   /** 到期日：用到这天为止，这天及以后不再扣费；null 表示一直续 */
   endDate?: string | null;
   autoRenew: boolean; remindDays: number; note: string;
+  /** 管理链接（续费页、控制台），选填 */
+  url?: string;
 }
 export interface Subscription {
   id: string; name: string; category: SubscriptionCategory; amountCents: number; cycle: SubscriptionCycle;
   /** 保存的锚定日；自动续期的项目会从这一天按周期往后推 */
-  nextDueDate: string; endDate: string | null; autoRenew: boolean; remindDays: number; note: string;
+  nextDueDate: string; endDate: string | null; autoRenew: boolean; remindDays: number; note: string; url: string;
   /** 从固定支出账单导入时的来源标识 */
   sourceKey: string | null;
   createdAt: string; updatedAt: string; endedAt: string | null; version: number;

@@ -10,6 +10,7 @@ import type { ApiEnv } from './types';
 import { ApiError } from './errors';
 import { digest } from './security';
 import { MAX_CENTS, normalizeDate, parseAmount, versionSchema } from './ledger/domain';
+import { urlSchema } from './wishlist';
 
 const itemId = z.uuid();
 const nameSchema = z.string().trim().min(1).max(100);
@@ -20,32 +21,32 @@ const sourceKeySchema = z.string().min(1).max(200);
 const inputSchema = z.object({
   name: nameSchema, category: z.enum(SUBSCRIPTION_CATEGORIES).default('other'), amount: z.string().trim().max(20),
   cycle: z.enum(SUBSCRIPTION_CYCLES), nextDueDate: calendarDate, endDate: calendarDate.nullable().default(null),
-  autoRenew: z.boolean().default(true), remindDays: remindDaysSchema.default(7), note: noteSchema.default(''),
+  autoRenew: z.boolean().default(true), remindDays: remindDaysSchema.default(7), note: noteSchema.default(''), url: urlSchema.default(''),
 });
 const timestamp = z.string().max(40).transform(normalizeDate);
 /** 备份里的订阅：只保存原始字段，推算字段在读取时重新计算；较早的备份没有到期日与来源 */
 export const subscriptionBackupSchema = z.object({
   id: itemId, name: nameSchema, category: z.enum(SUBSCRIPTION_CATEGORIES), amountCents: z.number().int().min(1).max(MAX_CENTS),
   cycle: z.enum(SUBSCRIPTION_CYCLES), nextDueDate: calendarDate, endDate: calendarDate.nullable().optional().default(null),
-  autoRenew: z.boolean(), remindDays: remindDaysSchema, note: noteSchema, sourceKey: sourceKeySchema.nullable().optional().default(null),
+  autoRenew: z.boolean(), remindDays: remindDaysSchema, note: noteSchema, url: urlSchema.optional().default(''), sourceKey: sourceKeySchema.nullable().optional().default(null),
   createdAt: timestamp, updatedAt: timestamp, endedAt: timestamp.nullable(), version: versionSchema.shape.version,
 });
 export type StoredSubscription = z.infer<typeof subscriptionBackupSchema>;
 
 export interface SubscriptionRow {
   id: string; name: string; category: Subscription['category']; amount_cents: number; cycle: Subscription['cycle'];
-  next_due_date: string; end_date: string | null; auto_renew: number; remind_days: number; note: string; source_key: string | null;
+  next_due_date: string; end_date: string | null; auto_renew: number; remind_days: number; note: string; url: string | null; source_key: string | null;
   created_at: string; updated_at: string; ended_at: string | null; version: number; create_payload_hash: string | null;
 }
 export const subscriptionColumns: Record<string, keyof StoredSubscription> = {
   id: 'id', name: 'name', category: 'category', amount_cents: 'amountCents', cycle: 'cycle', next_due_date: 'nextDueDate',
-  end_date: 'endDate', auto_renew: 'autoRenew', remind_days: 'remindDays', note: 'note', source_key: 'sourceKey',
+  end_date: 'endDate', auto_renew: 'autoRenew', remind_days: 'remindDays', note: 'note', url: 'url', source_key: 'sourceKey',
   created_at: 'createdAt', updated_at: 'updatedAt', ended_at: 'endedAt', version: 'version',
 };
 export function toStoredSubscription(row: SubscriptionRow): StoredSubscription {
   return { id: row.id, name: row.name, category: row.category, amountCents: row.amount_cents, cycle: row.cycle,
     nextDueDate: row.next_due_date, endDate: row.end_date ?? null, autoRenew: row.auto_renew === 1, remindDays: row.remind_days,
-    note: row.note, sourceKey: row.source_key ?? null,
+    note: row.note, url: row.url ?? '', sourceKey: row.source_key ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at, endedAt: row.ended_at, version: row.version };
 }
 export function toSubscription(row: SubscriptionRow, today: string): Subscription {
@@ -62,7 +63,7 @@ const endedAt = (item: Subscription) => item.endedAt ?? `${item.endDate}T23:59:5
 
 function normalizedInput(input: z.infer<typeof inputSchema>) {
   return { name: input.name, category: input.category, amountCents: parseAmount(input.amount), cycle: input.cycle,
-    nextDueDate: input.nextDueDate, endDate: input.endDate, autoRenew: input.autoRenew, remindDays: input.remindDays, note: input.note };
+    nextDueDate: input.nextDueDate, endDate: input.endDate, autoRenew: input.autoRenew, remindDays: input.remindDays, note: input.note, url: input.url };
 }
 async function changed(db: D1Database, id: string, row: SubscriptionRow | null): Promise<Subscription> {
   if (row) return toSubscription(row, shanghaiToday());
@@ -225,9 +226,9 @@ subscriptionRoutes.post('/subscriptions', async c => {
   const { id, ...input } = z.object({ id: itemId }).passthrough().parse(await c.req.json());
   const value = normalizedInput(inputSchema.parse(input)), now = new Date().toISOString();
   const hash = await digest(JSON.stringify(value));
-  const row = await c.env.DB.prepare(`INSERT INTO subscriptions(id,name,category,amount_cents,cycle,next_due_date,end_date,auto_renew,remind_days,note,created_at,updated_at,create_payload_hash)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING RETURNING *`)
-    .bind(id, value.name, value.category, value.amountCents, value.cycle, value.nextDueDate, value.endDate, Number(value.autoRenew), value.remindDays, value.note, now, now, hash)
+  const row = await c.env.DB.prepare(`INSERT INTO subscriptions(id,name,category,amount_cents,cycle,next_due_date,end_date,auto_renew,remind_days,note,url,created_at,updated_at,create_payload_hash)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING RETURNING *`)
+    .bind(id, value.name, value.category, value.amountCents, value.cycle, value.nextDueDate, value.endDate, Number(value.autoRenew), value.remindDays, value.note, value.url, now, now, hash)
     .first<SubscriptionRow>();
   if (row) return c.json({ data: toSubscription(row, shanghaiToday()) }, 201);
   const existing = await c.env.DB.prepare('SELECT * FROM subscriptions WHERE id=?').bind(id).first<SubscriptionRow>();
@@ -238,9 +239,9 @@ subscriptionRoutes.put('/subscriptions/:id', async c => {
   const id = itemId.parse(c.req.param('id'));
   const { version, ...input } = z.object({ version: versionSchema.shape.version }).passthrough().parse(await c.req.json());
   const value = normalizedInput(inputSchema.parse(input));
-  const row = await c.env.DB.prepare(`UPDATE subscriptions SET name=?,category=?,amount_cents=?,cycle=?,next_due_date=?,end_date=?,auto_renew=?,remind_days=?,note=?,
+  const row = await c.env.DB.prepare(`UPDATE subscriptions SET name=?,category=?,amount_cents=?,cycle=?,next_due_date=?,end_date=?,auto_renew=?,remind_days=?,note=?,url=?,
     updated_at=?,version=version+1 WHERE id=? AND version=? AND version<9007199254740991 AND ended_at IS NULL RETURNING *`)
-    .bind(value.name, value.category, value.amountCents, value.cycle, value.nextDueDate, value.endDate, Number(value.autoRenew), value.remindDays, value.note,
+    .bind(value.name, value.category, value.amountCents, value.cycle, value.nextDueDate, value.endDate, Number(value.autoRenew), value.remindDays, value.note, value.url,
       new Date().toISOString(), id, version).first<SubscriptionRow>();
   return c.json({ data: await changed(c.env.DB, id, row) });
 });

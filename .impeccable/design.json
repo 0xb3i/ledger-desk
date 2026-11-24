@@ -1,46 +1,193 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-23T08:00:00+08:00",
+  "generatedAt": "2026-11-23T22:30:00+08:00",
   "title": "Design System: 轻记",
   "extensions": {
     "colorMeta": {
-      "ember-period": { "role": "primary", "displayName": "句点橙 Ember Period", "canonical": "#e56332", "tonalRamp": ["#3d1a0c", "#6b2c14", "#9c3f1d", "#c95127", "#e56332", "#ee8a63", "#f6b99f", "#fff2ea"] },
-      "ember-muted": { "role": "primary", "displayName": "柔橙 Ember Muted", "canonical": "#e6845a" },
-      "ember-wash": { "role": "primary", "displayName": "橙雾 Ember Wash", "canonical": "#fff2ea" },
-      "ledger-green": { "role": "secondary", "displayName": "账本绿 Ledger Green", "canonical": "#4d8061", "tonalRamp": ["#16261c", "#24402f", "#335a42", "#41724f", "#4d8061", "#74a084", "#a9c7b4", "#e4efe8"] },
-      "brick-red": { "role": "tertiary", "displayName": "砖红 Brick Red", "canonical": "#c84b31", "tonalRamp": ["#3a140c", "#621f13", "#8c2c1c", "#b03b26", "#c84b31", "#d97a65", "#eab0a3", "#f8e3de"] },
-      "graphite": { "role": "neutral", "displayName": "石墨 Graphite", "canonical": "#26272a", "tonalRamp": ["#151617", "#232426", "#26272a", "#4a4b50", "#71727a", "#a3a4ab", "#d6d7dc", "#f6f6f7"] },
-      "ink": { "role": "neutral", "displayName": "墨色 Ink", "canonical": "#232426" },
-      "ink-muted": { "role": "neutral", "displayName": "灰墨 Ink Muted", "canonical": "#71727a" },
-      "paper-canvas": { "role": "neutral", "displayName": "纸面画布 Paper Canvas", "canonical": "#f6f6f7" },
-      "paper-white": { "role": "neutral", "displayName": "纸白 Paper White", "canonical": "#ffffff" },
-      "hairline": { "role": "neutral", "displayName": "发丝线 Hairline", "canonical": "#eaeaee" },
-      "hairline-inner": { "role": "neutral", "displayName": "内发丝线 Inner Hairline", "canonical": "#f1f1f4" },
-      "footer-tint": { "role": "neutral", "displayName": "页脚浅灰 Footer Tint", "canonical": "#fafafb" }
+      "ember-period": {
+        "role": "primary",
+        "displayName": "句点橙 Ember Period",
+        "canonical": "#e56332",
+        "tonalRamp": [
+          "#3d1a0c",
+          "#6b2c14",
+          "#9c3f1d",
+          "#c95127",
+          "#e56332",
+          "#ee8a63",
+          "#f6b99f",
+          "#fff2ea"
+        ]
+      },
+      "ember-muted": {
+        "role": "primary",
+        "displayName": "柔橙 Ember Muted",
+        "canonical": "#e6845a"
+      },
+      "ember-wash": {
+        "role": "primary",
+        "displayName": "橙雾 Ember Wash",
+        "canonical": "#fff2ea"
+      },
+      "ledger-green": {
+        "role": "secondary",
+        "displayName": "账本绿 Ledger Green",
+        "canonical": "#4d8061",
+        "tonalRamp": [
+          "#16261c",
+          "#24402f",
+          "#335a42",
+          "#41724f",
+          "#4d8061",
+          "#74a084",
+          "#a9c7b4",
+          "#e4efe8"
+        ]
+      },
+      "brick-red": {
+        "role": "tertiary",
+        "displayName": "砖红 Brick Red",
+        "canonical": "#c84b31",
+        "tonalRamp": [
+          "#3a140c",
+          "#621f13",
+          "#8c2c1c",
+          "#b03b26",
+          "#c84b31",
+          "#d97a65",
+          "#eab0a3",
+          "#f8e3de"
+        ]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "石墨 Graphite",
+        "canonical": "#26272a",
+        "tonalRamp": [
+          "#151617",
+          "#232426",
+          "#26272a",
+          "#4a4b50",
+          "#71727a",
+          "#a3a4ab",
+          "#d6d7dc",
+          "#f6f6f7"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "墨色 Ink",
+        "canonical": "#232426"
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "灰墨 Ink Muted",
+        "canonical": "#71727a"
+      },
+      "paper-canvas": {
+        "role": "neutral",
+        "displayName": "纸面画布 Paper Canvas",
+        "canonical": "#f6f6f7"
+      },
+      "paper-white": {
+        "role": "neutral",
+        "displayName": "纸白 Paper White",
+        "canonical": "#ffffff"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "发丝线 Hairline",
+        "canonical": "#eaeaee"
+      },
+      "hairline-inner": {
+        "role": "neutral",
+        "displayName": "内发丝线 Inner Hairline",
+        "canonical": "#f1f1f4"
+      },
+      "footer-tint": {
+        "role": "neutral",
+        "displayName": "页脚浅灰 Footer Tint",
+        "canonical": "#fafafb"
+      }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "总览页问候语或月份标题，只出现在首屏。" },
-      "headline": { "displayName": "Headline", "purpose": "二级页面标题（PageHeader）。" },
-      "amount": { "displayName": "Amount", "purpose": "关键金额；¥ 与小数部分降为 400 字重灰墨并缩小一档。" },
-      "title": { "displayName": "Title", "purpose": "卡片标题与列表分区标题。" },
-      "body": { "displayName": "Body", "purpose": "列表行标题、表单与正文。" },
-      "label": { "displayName": "Label", "purpose": "列头、副信息、脚注与日期。" }
+      "display": {
+        "displayName": "Display",
+        "purpose": "总览页问候语或月份标题，只出现在首屏。"
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "二级页面标题（PageHeader）。"
+      },
+      "amount": {
+        "displayName": "Amount",
+        "purpose": "关键金额；¥ 与小数部分降为 400 字重灰墨并缩小一档。"
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "卡片标题与列表分区标题。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "列表行标题、表单与正文。"
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "列头、副信息、脚注与日期。"
+      }
     },
     "shadows": [
-      { "name": "paper-rest", "value": "0 1px 2px rgba(35,36,38,0.02)", "purpose": "所有卡片的静止态，让白卡落在灰底上。" },
-      { "name": "control", "value": "0 1px 2px 0 rgba(0,0,0,0.05)", "purpose": "描边按钮与输入框的轻压痕。" },
-      { "name": "overlay", "value": "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)", "purpose": "Dialog、Sheet、Popover、Dropdown 等脱离文档流的浮层。" },
-      { "name": "focus", "value": "0 0 0 3px rgba(180,181,189,0.5)", "purpose": "所有可交互控件的键盘焦点环。" }
+      {
+        "name": "paper-rest",
+        "value": "0 1px 2px rgba(35,36,38,0.02)",
+        "purpose": "所有卡片的静止态，让白卡落在灰底上。"
+      },
+      {
+        "name": "control",
+        "value": "0 1px 2px 0 rgba(0,0,0,0.05)",
+        "purpose": "描边按钮与输入框的轻压痕。"
+      },
+      {
+        "name": "overlay",
+        "value": "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
+        "purpose": "Dialog、Sheet、Popover、Dropdown 等脱离文档流的浮层。"
+      },
+      {
+        "name": "focus",
+        "value": "0 0 0 3px rgba(180,181,189,0.5)",
+        "purpose": "所有可交互控件的键盘焦点环。"
+      }
     ],
     "motion": [
-      { "name": "page-enter", "value": "fade-in + translateY(8px→0) 300ms ease-out", "purpose": "切换页面时内容区一次性淡入上移。" },
-      { "name": "state", "value": "150ms ease (transition-colors / opacity)", "purpose": "悬停底色、行内操作显隐、勾选圆圈变色。" },
-      { "name": "overlay", "value": "fade + zoom-95 200ms", "purpose": "对话框与弹出层进出。" }
+      {
+        "name": "page-enter",
+        "value": "fade-in + translateY(8px→0) 300ms ease-out",
+        "purpose": "切换页面时内容区一次性淡入上移。"
+      },
+      {
+        "name": "state",
+        "value": "150ms ease (transition-colors / opacity)",
+        "purpose": "悬停底色、行内操作显隐、勾选圆圈变色。"
+      },
+      {
+        "name": "overlay",
+        "value": "fade + zoom-95 200ms",
+        "purpose": "对话框与弹出层进出。"
+      }
     ],
     "breakpoints": [
-      { "name": "md", "value": "768px" },
-      { "name": "lg", "value": "1024px" },
-      { "name": "xl", "value": "1280px" }
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
     ]
   },
   "components": [
@@ -115,6 +262,14 @@
       "description": "指标卡：标签、整数优先的金额（¥ 与小数降灰）、只回答比较结论的脚注。",
       "html": "<div class=\"ds-metric\"><span class=\"ds-metric-label\">支出</span><span class=\"ds-amount\"><span class=\"ds-amount-unit\">¥</span>6,988<span class=\"ds-amount-unit\">.67</span></span><span class=\"ds-metric-foot\"><span class=\"ds-trend\">↑ 26.8%</span>比上月同期多 ¥1,478.57</span></div>",
       "css": ".ds-metric { display: grid; gap: 6px; font-family: Inter, 'PingFang SC', sans-serif; color: var(--foreground, #232426); } .ds-metric-label { font-size: 14px; color: var(--muted-foreground, #71727a); } .ds-amount { font-size: 36px; font-weight: 500; line-height: 1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; } .ds-amount-unit { margin: 0 1px; font-size: 20px; font-weight: 400; color: var(--muted-foreground, #71727a); } .ds-metric-foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground, #71727a); font-variant-numeric: tabular-nums; } .ds-trend { padding: 2px 8px; border-radius: 9999px; background: var(--brand-soft, #fff2ea); color: var(--foreground, #232426); }"
+    },
+    {
+      "name": "Countdown Pills",
+      "kind": "chip",
+      "refersTo": "badge-count",
+      "description": "倒计时胶囊：只表达时间状态；普通用洗灰，需要处理时用橙雾。",
+      "html": "<span class=\"ds-pill ds-pill-neutral\">14 天后</span> <span class=\"ds-pill ds-pill-attention\">明天</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 9999px; font: 500 12px/1 Inter, 'PingFang SC', sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; } .ds-pill-neutral { background: #f0f0f2; color: #5f6068; } .ds-pill-attention { background: var(--brand-soft, #fff2ea); color: #a9441d; }"
     }
   ],
   "narrative": {
@@ -128,13 +283,41 @@
       "列表行悬停才显露次要操作，静止时界面保持安静。"
     ],
     "rules": [
-      { "name": "The Period Rule", "body": "句点橙只表达「需要留意」：提醒、越界、待处理。单屏出现的橙色面积不超过 5%，主按钮永远不用橙色。", "section": "colors" },
-      { "name": "The Two Reds Rule", "body": "橙色表示提醒，砖红表示破坏。提醒不能用砖红，删除不能用橙色。", "section": "colors" },
-      { "name": "The Grey Icons Rule", "body": "图标一律用灰墨。类目颜色只出现在需要区分类目的色点和占比色块里，不给图标上色。", "section": "colors" },
-      { "name": "The No-Bold Rule", "body": "界面文字不超过 500 字重。层级只靠字号、灰度和留白，不靠加粗。", "section": "typography" },
-      { "name": "The Tabular Rule", "body": "所有金额、计数、日期、百分比都加 tabular-nums，列内数字右对齐。", "section": "typography" },
-      { "name": "The Header-Is-Column Rule", "body": "清单卡片不单独放表头。卡片标题行同时承担列头，列名对齐到下方数据列。", "section": "layout" },
-      { "name": "The Flat-By-Default Rule", "body": "卡片在任何状态下都不加大阴影。悬停反馈用洗灰底色，拖放反馈用 2px 橙色描边环。", "section": "elevation" }
+      {
+        "name": "The Period Rule",
+        "body": "句点橙只表达「需要留意」：提醒、越界、待处理。单屏出现的橙色面积不超过 5%，主按钮永远不用橙色。",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Reds Rule",
+        "body": "橙色表示提醒，砖红表示破坏。提醒不能用砖红，删除不能用橙色。",
+        "section": "colors"
+      },
+      {
+        "name": "The Grey Icons Rule",
+        "body": "图标一律用灰墨，图标瓦片不上色。类目柔色（暖沙、雾蓝、雾紫、苔绿、灰玫）只用于需要区分类目的色点、占比色块和周期进度条。",
+        "section": "colors"
+      },
+      {
+        "name": "The No-Bold Rule",
+        "body": "界面文字不超过 500 字重。层级只靠字号、灰度和留白，不靠加粗。",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "所有金额、计数、日期、百分比都加 tabular-nums，列内数字右对齐。",
+        "section": "typography"
+      },
+      {
+        "name": "The Header-Is-Column Rule",
+        "body": "清单卡片不单独放表头。卡片标题行同时承担列头，列名对齐到下方数据列。",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "卡片在任何状态下都不加大阴影。悬停反馈用洗灰底色，拖放反馈用 2px 橙色描边环。",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do 让金额整数先被读到：¥ 和小数部分降为灰墨并缩小一档，全部加 tabular-nums。",
@@ -149,7 +332,7 @@
       "Don't 用砖红表达提醒，也不要用橙色表达删除。",
       "Don't 给卡片加大阴影、渐变、玻璃拟态，也不要在卡片里再嵌带圆角的卡片。",
       "Don't 使用超过 500 的字重，也不要用大写字母、字距拉宽的标签。",
-      "Don't 给图标上类目色，类目色只用于色点和占比色块。",
+      "Don't 给图标或图标瓦片上类目色，也不要给属性文字（如扣款方式）套底色或描边胶囊；类目色只用于色点、占比色块和周期进度。",
       "Don't 在界面上展示工程版本号或技术细节，技术状态只在需要处理时出现。"
     ]
   }

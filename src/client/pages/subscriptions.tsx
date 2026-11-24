@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Archive, CalendarClock, CalendarOff, CalendarSync, Check, ChevronRight, CircleCheck, MoreHorizontal, Pencil, Plus, X } from 'lucide-react';
+import { Archive, CalendarClock, CalendarOff, CalendarSync, Check, ChevronRight, CircleCheck, ExternalLink, MoreHorizontal, Pencil, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { CYCLE_LABELS, SUBSCRIPTION_CATEGORY_LABELS, dueLabel, needsReminder, type Subscription, type SubscriptionList, type SubscriptionSuggestion, type SubscriptionSuggestionList } from '../../shared/subscriptions';
+import { CYCLE_LABELS, SUBSCRIPTION_CATEGORY_LABELS, needsReminder, type Subscription, type SubscriptionList, type SubscriptionSuggestion, type SubscriptionSuggestionList } from '../../shared/subscriptions';
 import { api, errorMessage, useResource } from '@/lib/api';
 import { useApp } from '@/lib/app';
 import { dateLabel, money } from '@/lib/format';
-import { SUBSCRIPTION_COLORS, SUBSCRIPTION_ICONS } from '@/lib/subscription';
+import { SUBSCRIPTION_COLORS } from '@/lib/subscription';
+import { PeriodBar, Pill, SubscriptionTile, paymentLabel } from '@/components/subscription-ui';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@/components/ui/item';
 import { PageHeader } from '@/components/page-header';
 import { EmptyState, ErrorState, PageLoading } from '@/components/states';
 import { SubscriptionDialog } from '@/components/subscription-dialog';
@@ -22,7 +23,13 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const yuan = (cents: number) => `¥${money(cents).replace(/\.00$/, '')}`;
-const COLS = 'lg:grid lg:grid-cols-[2rem_minmax(0,1fr)_5rem_10rem_7rem_2rem] lg:gap-x-4';
+/* 清单够宽（容器 ≥ 48rem）才展开成多列；窄时名称在上、胶囊在下，不挤掉名称 */
+const COLS = '@3xl/list:grid @3xl/list:grid-cols-[2rem_minmax(0,1fr)_9rem_9.5rem_6rem_2rem] @3xl/list:gap-x-4';
+const PER: Record<Subscription['cycle'], string> = { weekly: '周', monthly: '月', quarterly: '季', semiannual: '半年', yearly: '年' };
+/** 胶囊里的倒计时：扣款方式已经由另一枚胶囊说明，这里只说还有多久 */
+const countdown = (item: Subscription) => item.state === 'ending' ? (item.daysLeft === 0 ? '今天到期' : `${item.daysLeft} 天后到期`)
+  : item.daysLeft < 0 ? `逾期 ${-item.daysLeft} 天` : item.daysLeft === 0 ? '今天' : item.daysLeft === 1 ? '明天' : `${item.daysLeft} 天后`;
+const host = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 const shortDate = (date: string, today: string) => dateLabel(date, date.slice(0, 4) !== today.slice(0, 4));
 const dueDate = (item: Subscription, today: string) => shortDate(item.dueDate, today);
 
@@ -59,18 +66,18 @@ export default function Subscriptions() {
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-6">
       {!search && <SuggestionsCard />}
-      <Card className="gap-0 overflow-hidden py-0">
+      <Card className="@container/list gap-0 overflow-hidden py-0">
         {/* 标题行兼作列头 */}
-        <div className={cn('flex items-center gap-3 border-b py-3.5 pr-3 pl-4 lg:pl-5', data?.items.length ? COLS : '')}>
+        <div className={cn('flex items-center gap-3 border-b py-3.5 pr-3 pl-4 @3xl/list:pl-5', data?.items.length ? COLS : '')}>
           <div className="col-span-2 flex min-w-0 items-center gap-2">
             <h2 className="text-base font-medium">进行中</h2>
             {data && <Badge variant="secondary" className="tabular-nums">{search ? data.items.length : data.counts.active}</Badge>}
           </div>
           {!!data?.items.length && <>
-            <span className="hidden text-xs text-muted-foreground lg:block">周期</span>
-            <span className="hidden text-xs text-muted-foreground lg:block">下次扣费</span>
-            <span className="hidden text-right text-xs text-muted-foreground lg:block">每期金额</span>
-            <span className="hidden lg:block" />
+            <span className="hidden text-xs text-muted-foreground @3xl/list:block">扣款方式</span>
+            <span className="hidden text-xs text-muted-foreground @3xl/list:block">下次扣费</span>
+            <span className="hidden text-right text-xs text-muted-foreground @3xl/list:block">每期金额</span>
+            <span className="hidden @3xl/list:block" />
           </>}
         </div>
 
@@ -110,37 +117,47 @@ export default function Subscriptions() {
 function SubscriptionRow({ item, today, busy, locked, onOpen, onRenew, onEnd, onRestore }: {
   item: Subscription; today: string; busy: boolean; locked: boolean; onOpen: () => void; onRenew: () => void; onEnd: () => void; onRestore: () => void;
 }) {
-  const Icon = SUBSCRIPTION_ICONS[item.category];
-  const ending = item.state === 'ending';
-  const due = <span className={cn(needsReminder(item) ? 'text-brand' : 'text-muted-foreground')}>{dueLabel(item)}{ending ? '，不再续费' : item.isFinal && '（最后一次扣费）'}</span>;
+  const ending = item.state === 'ending', attention = needsReminder(item);
   return (
     <div role="listitem" onClick={onOpen}
-      className={cn('group/row flex cursor-pointer items-center gap-3 py-3.5 pr-3 pl-4 transition-colors hover:bg-accent/40 lg:pl-5', COLS)}>
-      <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/50 text-muted-foreground [&_svg]:size-4" title={SUBSCRIPTION_CATEGORY_LABELS[item.category]}>
-        <Icon />
-      </span>
+      className={cn('group/row flex cursor-pointer items-center gap-3 py-3.5 pr-3 pl-4 transition-colors hover:bg-accent/40 @3xl/list:pl-5', COLS)}>
+      <span title={SUBSCRIPTION_CATEGORY_LABELS[item.category]}><SubscriptionTile category={item.category} /></span>
 
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">{item.name}</div>
-        {item.note && <p className="mt-0.5 hidden truncate text-xs text-muted-foreground lg:block">{item.note}</p>}
-        <p className="mt-0.5 truncate text-xs tabular-nums lg:hidden"><span className="text-muted-foreground">{CYCLE_LABELS[item.cycle]} · {dueDate(item, today)} · </span>{due}</p>
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-sm">{item.name}</span>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noreferrer noopener" aria-label={`打开「${item.name}」的管理页面`} title={host(item.url)}
+              onClick={e => e.stopPropagation()}
+              className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground/60 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
+        </div>
+        {(item.note || item.url) && <p className="mt-0.5 hidden truncate text-xs text-muted-foreground @3xl/list:block">{item.note || host(item.url)}</p>}
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 @3xl/list:hidden">
+          <span className="text-xs text-muted-foreground">{paymentLabel(item)}</span>
+          <Pill tone={attention ? 'attention' : 'neutral'}>{dueDate(item, today)} · {countdown(item)}</Pill>
+        </div>
       </div>
 
-      <div className="hidden text-sm lg:block">
-        <div className="text-foreground/75">{CYCLE_LABELS[item.cycle]}</div>
-        {ending ? <div className="mt-0.5 text-xs text-muted-foreground">不再续费</div>
-          : item.endDate ? <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{shortDate(item.endDate, today)} 到期</div>
-          : <div className="mt-0.5 text-xs text-muted-foreground">{item.autoRenew ? '自动扣款' : '手动付款'}</div>}
+      <div className="hidden @3xl/list:block">
+        <div className="text-sm text-foreground/75">{paymentLabel(item)}</div>
+        {item.endDate && !ending && <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{shortDate(item.endDate, today)} 到期</div>}
       </div>
 
-      <div className="hidden text-xs tabular-nums lg:block">
-        <div className="text-sm text-foreground/75">{dueDate(item, today)}</div>
-        <div className="mt-0.5">{due}</div>
+      <div className="hidden min-w-0 @3xl/list:block">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-foreground/80 tabular-nums">{dueDate(item, today)}</span>
+          <Pill tone={attention ? 'attention' : 'neutral'}>{countdown(item)}</Pill>
+          {item.isFinal && <span className="text-xs text-muted-foreground">最后一次</span>}
+        </div>
+        <PeriodBar item={item} className="mt-2 w-32" />
       </div>
 
       <div className="shrink-0 text-right tabular-nums">
-        <div className="text-sm text-foreground/85">{yuan(item.amountCents)}</div>
-        {item.cycle !== 'monthly' && <div className="mt-0.5 hidden text-xs text-muted-foreground lg:block">约 {yuan(item.monthlyCents)}/月</div>}
+        <div className="text-sm text-foreground/85">{yuan(item.amountCents)}<span className="ml-0.5 text-xs text-muted-foreground">/{PER[item.cycle]}</span></div>
+        {item.cycle !== 'monthly' && <div className="mt-0.5 hidden text-xs text-muted-foreground @3xl/list:block">约 {yuan(item.monthlyCents)}/月</div>}
       </div>
 
       <div className="flex shrink-0 items-center justify-end" onClick={e => e.stopPropagation()}>
@@ -153,6 +170,7 @@ function SubscriptionRow({ item, today, busy, locked, onOpen, onRenew, onEnd, on
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onSelect={onOpen}><Pencil />编辑</DropdownMenuItem>
+            {item.url && <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noreferrer noopener"><ExternalLink />打开管理页面</a></DropdownMenuItem>}
             {!ending && !item.autoRenew && <DropdownMenuItem onSelect={onRenew}><CircleCheck />已付款，推到下一期</DropdownMenuItem>}
             <DropdownMenuSeparator />
             {ending ? <DropdownMenuItem onSelect={onRestore}><CalendarSync />恢复续费</DropdownMenuItem>
@@ -190,10 +208,10 @@ function SuggestionsCard() {
       </div>
       <div role="list" className="divide-y divide-border">
         {items.map(item => {
-          const Icon = SUBSCRIPTION_ICONS[item.category], auto = modes[item.key] ?? item.autoRenew, working = busy === item.key;
+          const auto = modes[item.key] ?? item.autoRenew, working = busy === item.key;
           return (
             <div key={item.key} role="listitem" className="flex flex-wrap items-center gap-3 py-3 pr-3 pl-4 lg:pl-5">
-              <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/50 text-muted-foreground [&_svg]:size-4"><Icon /></span>
+              <SubscriptionTile category={item.category} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">{item.name}</div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums">
@@ -295,10 +313,9 @@ function EndedSheet({ onClose, onOpen }: { onClose: () => void; onOpen: (item: S
           <SheetDescription>过了到期日、不再扣费的订阅，不提醒也不计入合计。恢复续费后按原周期继续。</SheetDescription></SheetHeader>
         {!list.data ? <PageLoading /> : list.data.items.length ? <ItemGroup className="[&>*+*]:border-t [&>*+*]:border-t-border">
           {list.data.items.map(item => {
-            const Icon = SUBSCRIPTION_ICONS[item.category];
             return (
               <Item key={item.id} size="sm" className="rounded-none px-4">
-                <ItemMedia variant="icon"><Icon /></ItemMedia>
+                <SubscriptionTile category={item.category} />
                 <ItemContent className="min-w-0 cursor-pointer" onClick={() => onOpen(item)}>
                   <ItemTitle className="block truncate">{item.name}</ItemTitle>
                   <ItemDescription className="text-xs tabular-nums">{item.endedAt ? `${dateLabel(item.endedAt, true)} 停止` : `${dateLabel(item.endDate!, true)} 到期`} · {CYCLE_LABELS[item.cycle]} {yuan(item.amountCents)}</ItemDescription>

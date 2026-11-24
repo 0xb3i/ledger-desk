@@ -25,7 +25,7 @@ const transactionInput = { occurredAt: '2026-11-01T18:15:00+08:00', kind: 'expen
 beforeAll(async () => {
   runtime = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: { DB: 'platform-tests' }, compatibilityDate: '2026-08-06' });
   env = { DB: await runtime.getD1Database('DB') as unknown as D1Database, OWNER_ACCESS_KEY: accessKey, ASSETS: {} as Fetcher };
-  for (const name of ['0001_platform.sql', '0002_ledger.sql', '0004_fixed_expenses.sql', '0005_category_rules.sql', '0006_custom_categories.sql', '0007_transfer_direction.sql', '0009_wishlist.sql', '0010_monthly_budget.sql', '0015_subcategory_tags.sql', '0016_subcategory_catalog.sql', '0017_tag_icons.sql', '0018_transaction_tag_override.sql', '0019_dine_in_tag.sql', '0020_takeout_platforms.sql', '0021_fixed_expense_exclusion.sql', '0022_tag_category_cleanup.sql', '0024_subscriptions.sql', '0025_subscription_end_and_import.sql']) {
+  for (const name of ['0001_platform.sql', '0002_ledger.sql', '0004_fixed_expenses.sql', '0005_category_rules.sql', '0006_custom_categories.sql', '0007_transfer_direction.sql', '0009_wishlist.sql', '0010_monthly_budget.sql', '0015_subcategory_tags.sql', '0016_subcategory_catalog.sql', '0017_tag_icons.sql', '0018_transaction_tag_override.sql', '0019_dine_in_tag.sql', '0020_takeout_platforms.sql', '0021_fixed_expense_exclusion.sql', '0022_tag_category_cleanup.sql', '0024_subscriptions.sql', '0025_subscription_end_and_import.sql', '0027_subscription_url.sql']) {
     const sql = await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8');
     const start = sql.indexOf('CREATE TRIGGER');
     const prefix = start === -1 ? sql : sql.slice(0, start);

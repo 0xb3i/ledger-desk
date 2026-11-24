@@ -136,7 +136,8 @@ describe('订阅与固定开销 API', () => {
   });
 
   it('拒绝无效日期、金额和提醒天数', async () => {
-    for (const bad of [{ nextDueDate: '2026-02-30' }, { nextDueDate: '1999-12-31' }, { amount: '0' }, { amount: '-5' }, { remindDays: 61 }, { name: ' ' }]) {
+    for (const bad of [{ nextDueDate: '2026-02-30' }, { nextDueDate: '1999-12-31' }, { amount: '0' }, { amount: '-5' }, { remindDays: 61 }, { name: ' ' },
+      { url: 'javascript:alert(1)' }, { url: 'https://user:pass@example.com/' }, { url: 'ftp://example.com/' }]) {
       expect((await request('/subscriptions', 'POST', { ...input(), ...bad, id: crypto.randomUUID() })).status).toBe(422);
     }
   });
@@ -144,7 +145,9 @@ describe('订阅与固定开销 API', () => {
   it('编辑需要匹配版本，冲突时返回 409', async () => {
     const item = await create();
     const updated = await read<Subscription>(await request(`/subscriptions/${item.id}`, 'PUT', { ...input({ amount: '3500', remindDays: 3 }), version: 1 }));
-    expect(updated).toMatchObject({ amountCents: 350_000, remindDays: 3, version: 2, state: 'soon' });
+    expect(updated).toMatchObject({ amountCents: 350_000, remindDays: 3, version: 2, state: 'soon', url: '' });
+    expect(await read<Subscription>(await request(`/subscriptions/${item.id}`, 'PUT', { ...input({ url: ' https://example.com/console ' }), version: 2 })))
+      .toMatchObject({ url: 'https://example.com/console', version: 3 });
     expect((await request(`/subscriptions/${item.id}`, 'PUT', { ...input(), version: 1 })).status).toBe(409);
     expect((await request(`/subscriptions/${crypto.randomUUID()}`, 'PUT', { ...input(), version: 1 })).status).toBe(404);
   });
@@ -239,9 +242,9 @@ describe('订阅与固定开销 API', () => {
   });
 
   it('备份导出订阅，恢复到新库后重复恢复会跳过，内容冲突时整体拒绝', async () => {
-    const item = await create({ note: '押一付三' });
+    const item = await create({ note: '押一付三', url: 'https://example.com/billing' });
     const backup = await read<Extract<Backup, { schemaVersion: 7 }>>(await request('/backup'));
-    expect(backup.subscriptions).toEqual([expect.objectContaining({ id: item.id, nextDueDate: '2026-11-26', autoRenew: true, note: '押一付三' })]);
+    expect(backup.subscriptions).toEqual([expect.objectContaining({ id: item.id, nextDueDate: '2026-11-26', autoRenew: true, note: '押一付三', url: 'https://example.com/billing' })]);
     expect(backup.subscriptions![0]).not.toHaveProperty('dueDate');
 
     const otherDirectory = await mkdtemp(join(tmpdir(), 'qingji-subscriptions-restore-'));

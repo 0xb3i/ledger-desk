@@ -11,7 +11,7 @@ const titleSchema = z.string().trim().min(1).max(200);
 const noteSchema = z.string().trim().max(2000);
 const brandSchema = z.string().trim().max(100);
 const statusSchema = z.enum(['wanted', 'purchased']);
-const urlSchema = z.string().trim().max(2000).refine(value => {
+export const urlSchema = z.string().trim().max(2000).refine(value => {
   if (!value) return true;
   if (/[\u0000-\u001f\u007f]/.test(value)) return false;
   try {

@@ -3,17 +3,12 @@ import type { SubscriptionCategory, SubscriptionReminders } from '../../shared/s
 import { useResource } from './api';
 import { useApp } from './app';
 
-/* 订阅类别：图标统一灰色；颜色只用于构成条和色点，避开表示「需要留意」的句点橙 */
+/* 订阅类别：图标统一灰色。类别色沿用类目的低饱和色板（暖沙、雾蓝、雾紫、苔绿、灰玫），只用于构成条、色点和周期进度，避开表示「需要留意」的句点橙 */
 export const SUBSCRIPTION_ICONS: Record<SubscriptionCategory, LucideIcon> = {
   housing: House, software: AppWindow, membership: Crown, utility: Zap, insurance: ShieldCheck, other: CircleEllipsis,
 };
 export const SUBSCRIPTION_COLORS: Record<SubscriptionCategory, string> = {
-  housing: 'var(--chart-2)',
-  software: 'var(--chart-5)',
-  membership: 'var(--chart-4)',
-  utility: 'var(--chart-3)',
-  insurance: 'color-mix(in srgb, var(--chart-2) 55%, var(--foreground))',
-  other: 'color-mix(in srgb, var(--muted-foreground) 55%, var(--card))',
+  housing: '#ad9b7b', software: '#7d98a6', membership: '#9689ad', utility: '#849379', insurance: '#b08a85', other: '#a3a4ab',
 };
 
 /** 右上角铃铛用：进入提醒窗口或已过期的项目，随账本一起刷新 */
