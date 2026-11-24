@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="LedgerDesk 轻记 — macOS 本地优先个人账本与数据流">
+  <img src="./assets/readme/hero.svg" width="100%" alt="轻记 LedgerDesk：邮箱里的账单提醒，自动记进这台 Mac 的本地账本">
 </p>
 
 <p align="center">
